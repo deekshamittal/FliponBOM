@@ -83,7 +83,7 @@
 
   /* ---------- main split ---------- */
   .main{display:grid;grid-template-columns:minmax(300px,420px) 1fr;flex:1;min-height:0;}
-  .tree-panel{display:flex;flex-direction:column;background:var(--bg-panel);border-right:1px solid var(--line);min-height:0;}
+  .tree-panel{display:flex;flex-direction:column;background:#EEF2F7;border-right:1px solid var(--line);min-height:0;--text-faint:#6B7A8A;--text-muted:#3D4B5C;--bg-panel-3:#DCE4ED;}
   .tree-panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px 8px;}
   .tree-panel-tools{display:flex;gap:6px;}
   .tree-scroll{flex:1;overflow-y:auto;padding:4px 10px 10px;}
@@ -113,7 +113,7 @@
   .row-itemnum{font-family:var(--font-mono);}
   .row-dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;}
 
-  .detail-panel{overflow-y:auto;padding:22px 26px 60px;background:var(--bg-base);}
+  .detail-panel{overflow-y:auto;padding:22px 26px 60px;background:var(--bg-panel);}
   .detail-empty{color:var(--text-faint);padding:60px 10px;text-align:center;font-size:13px;}
   .detail-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;}
   .detail-header .type-chip-lg{width:24px;height:24px;font-size:10.5px;margin-top:2px;border-radius:4px;display:flex;align-items:center;justify-content:center;border:1px solid;font-family:var(--font-mono);font-weight:600;}
@@ -122,9 +122,9 @@
   .input-title:hover{border-color:var(--line);}
   .input-title:focus{background:var(--bg-panel-2);border-color:var(--cyan);}
   .input-mono{font-family:var(--font-mono);}
-  .input-itemnum{font-size:12px;color:var(--text-muted);background:transparent;border:1px solid transparent;padding:2px 6px;max-width:220px;}
-  .input-itemnum:hover{border-color:var(--line);}
-  .input-itemnum:focus{background:var(--bg-panel-2);border-color:var(--cyan);color:var(--text);}
+  .input-itemnum{font-size:13px;font-weight:600;color:var(--text);background:var(--amber-dim);border:1px solid var(--amber);border-radius:4px;padding:6px 10px;max-width:260px;}
+  .input-itemnum:hover{border-color:var(--amber);}
+  .input-itemnum:focus{background:#FFF6E0;border-color:var(--amber);color:var(--text);}
   .detail-actions{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
   .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-bottom:18px;}
   .detail-grid label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text-muted);}
@@ -444,10 +444,16 @@
     });
   }
   function dataURLtoBase64(dataURL){
-    const parts = dataURL.split(",");
-    const meta = parts[0];
-    const ext = /png/.test(meta) ? "png" : /jpeg|jpg/.test(meta) ? "jpeg" : "png";
-    return { base64: parts[1], extension: ext };
+    if(typeof dataURL !== "string" || !dataURL.startsWith("data:image/")){
+      throw new Error("not a valid image data URL");
+    }
+    const commaIdx = dataURL.indexOf(",");
+    if(commaIdx === -1) throw new Error("image data URL has no base64 payload (missing comma)");
+    const meta = dataURL.slice(0, commaIdx);
+    const base64 = dataURL.slice(commaIdx + 1);
+    if(!base64) throw new Error("image data URL has an empty base64 payload");
+    const extension = /png/.test(meta) ? "png" : /jpe?g/.test(meta) ? "jpeg" : /gif/.test(meta) ? "gif" : "png";
+    return { base64, extension };
   }
 
   /* =========================================================
@@ -460,6 +466,7 @@
     ws.getColumn(1).width = 7;
     const widths = [7,14,16,24,13,8,10,10,22,10,16,18,24,11,13,12,26];
     widths.forEach((w,i)=> ws.getColumn(i+1).width = w);
+    const imageErrors = [];
 
     ws.mergeCells(1,1,1,17);
     const titleCell = ws.getCell(1,1);
@@ -480,7 +487,7 @@
         const {base64, extension} = dataURLtoBase64(bom.header.productImage);
         const imgId = wb.addImage({ base64, extension });
         ws.addImage(imgId, { tl:{col:1, row:5}, ext:{width:110, height:110} });
-      }catch(e){ /* skip image on failure, don't block the save */ }
+      }catch(e){ console.error("Flipon BOM: header image embed failed:", e); imageErrors.push("product image: " + e.message); }
     }
 
     const HEADER_ROW = 13;
@@ -506,11 +513,12 @@
           const {base64, extension} = dataURLtoBase64(n.image);
           const imgId = wb.addImage({ base64, extension });
           ws.addImage(imgId, { tl:{col:7, row:row-1}, ext:{width:26, height:26} });
-        }catch(e){ /* skip image on failure */ }
+        }catch(e){ console.error("Flipon BOM: item image embed failed for", n.itemNumber||n.description, e); imageErrors.push((n.itemNumber||n.description||"item") + ": " + e.message); }
       }
       (n.children||[]).forEach(c => writeNode(c, level+1, n.itemNumber));
     }
     (bom.tree||[]).forEach(n => writeNode(n, 1, ""));
+    wb._imageErrors = imageErrors;
 
     const notesRow = r + 1;
     ws.getCell(notesRow, 1).value = "Product Notes / Specs / Founder Notes";
@@ -536,18 +544,22 @@
 
     // recover images: match each embedded image to the row it's anchored on
     const imagesByRow = {};
+    let imageRecoveryNote = null;
     try{
       const images = ws.getImages() || [];
-      images.forEach(img=>{
+      console.log("Flipon BOM: found", images.length, "embedded image(s) in this file.");
+      images.forEach((img, i)=>{
         const rowIdx = img.range && img.range.tl ? Math.round(img.range.tl.row) : null;
-        if(rowIdx == null) return;
-        const media = wb.model.media.find(m => m.index === img.imageId || m === wb.model.media[img.imageId]) || wb.model.media[img.imageId];
-        if(!media) return;
+        if(rowIdx == null){ console.warn("Flipon BOM: image", i, "has no anchor row, skipping.", img); return; }
+        const media = wb.model.media.find(m => m.index === img.imageId) || wb.model.media[img.imageId];
+        if(!media){ console.warn("Flipon BOM: image", i, "(imageId", img.imageId, ") has no matching media entry.", wb.model.media); return; }
         const b64 = media.buffer ? arrayBufferToBase64(media.buffer) : media.base64;
-        if(!b64) return;
+        if(!b64){ console.warn("Flipon BOM: image", i, "media entry has neither buffer nor base64.", media); return; }
         imagesByRow[rowIdx] = "data:image/" + (media.extension||"png") + ";base64," + b64;
       });
-    }catch(e){ /* image recovery is best-effort; BOM data still loads without it */ }
+      if(images.length && Object.keys(imagesByRow).length === 0) imageRecoveryNote = "Found " + images.length + " image(s) in the file but couldn't read any of them back \u2014 see console for details.";
+    }catch(e){ console.error("Flipon BOM: image recovery threw:", e); imageRecoveryNote = "Image recovery failed: " + e.message; }
+    if(imageRecoveryNote) showToast(imageRecoveryNote, "error");
 
     if(imagesByRow[5] !== undefined) bom.header.productImage = imagesByRow[5];
 
@@ -665,11 +677,20 @@
   async function openBOMFile(file){
     try{
       const buf = await fsReadFile(file.handle);
+      if(buf.byteLength === 0){
+        showToast(`"${file.name}" is 0 bytes on disk. If this folder syncs via Dropbox/OneDrive/Google Drive, it may be an online-only placeholder that hasn't downloaded locally yet.`, "error");
+        return;
+      }
       currentBOM = await workbookToBOM(buf);
       currentFileHandle = file.handle;
       dirty = false;
       openEditor();
-    }catch(e){ showToast("Couldn't open file: " + e.message, "error"); }
+    }catch(e){
+      const looksLikeFormatIssue = /corrupt|zip|end of data|signature/i.test(e.message);
+      showToast(looksLikeFormatIssue
+        ? `"${file.name}" couldn't be read as a standard .xlsx file. If this wasn't created by this app, it may use a different layout or format this reader doesn't support yet.`
+        : "Couldn't open file: " + e.message, "error");
+    }
   }
 
   document.getElementById("btn-pick-folder").addEventListener("click", async () => {
@@ -992,7 +1013,12 @@
       await fsWriteFile(currentFileHandle, buf);
       dirty = false;
       updateSaveStatus();
-      showToast("Saved", "success");
+      if(wb._imageErrors && wb._imageErrors.length){
+        console.error("Flipon BOM: image embed failures on save:", wb._imageErrors);
+        showToast(`Saved, but ${wb._imageErrors.length} image(s) failed to embed \u2014 open the browser console (F12) for details.`, "error");
+      } else {
+        showToast("Saved", "success");
+      }
     }catch(e){ showToast("Save failed: " + e.message, "error"); }
   });
 
