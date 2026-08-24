@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOM App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+  :root{
+    --bg-base:#0D141F; --bg-panel:#131C29; --bg-panel-2:#182333; --bg-panel-3:#1E2C3F;
+    --line:#25384E; --line-bright:#3D6E96;
+    --cyan:#5FCBEB; --cyan-dim:rgba(95,203,235,.14);
+    --amber:#F2A541; --amber-dim:rgba(242,165,65,.16);
+    --green:#6FCF97; --green-dim:rgba(111,207,151,.14);
+    --red:#E5695B; --red-dim:rgba(229,105,91,.14);
+    --violet:#B98CE0; --rose:#F0789A; --teal:#3FB8A8; --slate:#7C93A8;
+    --text:#E8EEF4; --text-muted:#7C93A8; --text-faint:#4C6178;
+    --font-ui:'IBM Plex Sans',system-ui,sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;} html,body{height:100%;margin:0;}
+  body{
+    background-color:var(--bg-base);
+    background-image:radial-gradient(circle, rgba(61,110,150,.35) 1px, transparent 1px);
+    background-size:26px 26px;
+    color:var(--text); font-family:var(--font-ui); font-size:14px; -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit;cursor:pointer;} input,select,textarea,button{font-size:13px;color:var(--text);}
+  :focus-visible{outline:2px solid var(--cyan);outline-offset:1px;}
+  .view{height:100vh;display:flex;flex-direction:column;}
+  .view[hidden]{display:none;}
+
+  .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 20px;background:var(--bg-panel);border-bottom:1px solid var(--line);}
+  .brand{display:flex;align-items:center;gap:8px;}
+  .brand-text{font-family:var(--font-mono);font-weight:600;letter-spacing:.12em;font-size:13px;}
+  .btn{background:var(--bg-panel-3);border:1px solid var(--line);color:var(--text);padding:7px 12px;border-radius:4px;font-size:12.5px;font-weight:500;}
+  .btn:hover{border-color:var(--line-bright);background:#22314A;}
+  .btn-ghost{background:transparent;}
+  .btn-accent{border-color:var(--cyan);color:var(--cyan);}
+  .btn-accent:hover{background:var(--cyan-dim);}
+  .btn-danger{border-color:var(--red);color:var(--red);}
+  .btn-danger:hover{background:var(--red-dim);}
+  .btn-sm{padding:5px 9px;font-size:11.5px;}
+  .btn[disabled]{opacity:.4;cursor:not-allowed;}
+  .spacer{flex:1;}
+
+  /* ---------- library ---------- */
+  #library-content{flex:1;overflow-y:auto;padding:28px 32px;}
+  .library-empty{max-width:480px;margin:60px auto;text-align:center;color:var(--text-muted);}
+  .library-empty h2{color:var(--text);font-size:18px;}
+  .bom-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;max-width:1200px;margin:0 auto;}
+  .bom-card{background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:14px;cursor:pointer;transition:border-color .12s;}
+  .bom-card:hover{border-color:var(--cyan);}
+  .bom-card-thumb{width:100%;height:120px;border-radius:4px;background:var(--bg-panel-3);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:10px;}
+  .bom-card-thumb img{width:100%;height:100%;object-fit:cover;}
+  .bom-card-thumb .placeholder{color:var(--text-faint);font-size:11px;}
+  .bom-card-title{font-weight:600;font-size:13.5px;}
+  .bom-card-sub{font-family:var(--font-mono);font-size:11px;color:var(--text-faint);margin-top:3px;}
+  .new-bom-card{border:1px dashed var(--line-bright);display:flex;align-items:center;justify-content:center;color:var(--cyan);min-height:190px;font-size:13px;}
+  .new-bom-card:hover{background:var(--cyan-dim);}
+
+  /* ---------- collapsible panels (product info / notes) ---------- */
+  .panel{background:var(--bg-panel);border-bottom:1px solid var(--line);}
+  .panel-head{display:flex;align-items:center;gap:8px;padding:10px 20px;cursor:pointer;}
+  .panel-head .chev{font-size:10px;color:var(--text-muted);transition:transform .12s;}
+  .panel-head.open .chev{transform:rotate(90deg);}
+  .panel-title{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+  .panel-summary{font-size:11.5px;color:var(--text-faint);margin-left:4px;}
+  .panel-body{padding:4px 20px 18px;display:none;}
+  .panel-body.open{display:block;}
+  .field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 16px;}
+  .field-grid label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text-muted);}
+  .input{width:100%;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:4px;padding:8px 10px;color:var(--text);}
+  .input:focus{border-color:var(--cyan);}
+  textarea.input{resize:vertical;min-height:60px;}
+  .image-field{display:flex;align-items:center;gap:12px;}
+  .image-thumb{width:64px;height:64px;border-radius:4px;background:var(--bg-panel-3);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto;}
+  .image-thumb img{width:100%;height:100%;object-fit:cover;}
+  .image-thumb .placeholder{color:var(--text-faint);font-size:9px;text-align:center;}
+
+  /* ---------- main split ---------- */
+  .main{display:grid;grid-template-columns:minmax(300px,420px) 1fr;flex:1;min-height:0;}
+  .tree-panel{display:flex;flex-direction:column;background:var(--bg-panel);border-right:1px solid var(--line);min-height:0;}
+  .tree-panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px 8px;}
+  .tree-panel-tools{display:flex;gap:6px;}
+  .tree-scroll{flex:1;overflow-y:auto;padding:4px 10px 10px;}
+  .btn-add-root{margin:2px 14px 12px;padding:9px 10px;border:1px dashed var(--line-bright);border-radius:4px;background:transparent;color:var(--cyan);font-size:12.5px;text-align:left;}
+  .btn-add-root:hover{background:var(--cyan-dim);}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 12px;padding:10px 16px;border-top:1px solid var(--line);}
+  .legend span{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-faint);}
+  .chip{font-family:var(--font-mono);font-weight:600;font-size:8.5px;padding:1px 4px;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;border:1px solid;min-width:18px;}
+  .empty-tree{padding:26px 14px;color:var(--text-faint);font-size:12.5px;line-height:1.6;}
+
+  ul.tree-root, ul.tree-children{list-style:none;margin:0;padding:0;}
+  ul.tree-children{padding-left:20px;margin-left:9px;border-left:1px dashed var(--line-bright);padding-bottom:2px;}
+  li.tree-li{position:relative;}
+  li.tree-li > .tree-row-wrap::before{content:'';position:absolute;left:-20px;top:20px;width:14px;height:0;border-top:1px dashed var(--line-bright);}
+  ul.tree-root > li.tree-li > .tree-row-wrap::before{display:none;}
+  .tree-row{display:flex;align-items:flex-start;gap:7px;padding:6px 8px;border-radius:4px;cursor:pointer;border:1px solid transparent;margin:1px 0;}
+  .tree-row:hover{background:var(--bg-panel-3);}
+  .tree-row.selected{background:var(--cyan-dim);border-color:var(--cyan);}
+  .chevron{flex:0 0 auto;width:16px;height:20px;background:transparent;border:none;color:var(--text-muted);font-size:10px;display:flex;align-items:center;justify-content:center;padding:0;margin-top:1px;}
+  .chevron--empty{visibility:hidden;}
+  .row-thumb{width:22px;height:22px;border-radius:3px;flex:0 0 auto;margin-top:1px;object-fit:cover;background:var(--bg-panel-3);}
+  .row-main{flex:1;min-width:0;}
+  .row-line1{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
+  .row-desc{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .row-cost{font-family:var(--font-mono);font-size:12px;color:var(--cyan);white-space:nowrap;flex:0 0 auto;}
+  .row-line2{display:flex;align-items:center;gap:8px;margin-top:2px;color:var(--text-faint);font-size:11px;}
+  .row-itemnum{font-family:var(--font-mono);}
+  .row-dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;}
+
+  .detail-panel{overflow-y:auto;padding:22px 26px 60px;background:var(--bg-base);}
+  .detail-empty{color:var(--text-faint);padding:60px 10px;text-align:center;font-size:13px;}
+  .detail-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;}
+  .detail-header .type-chip-lg{width:24px;height:24px;font-size:10.5px;margin-top:2px;border-radius:4px;display:flex;align-items:center;justify-content:center;border:1px solid;font-family:var(--font-mono);font-weight:600;}
+  .detail-titles{flex:1;display:flex;flex-direction:column;gap:6px;}
+  .input-title{font-size:16px;font-weight:600;background:transparent;border:1px solid transparent;padding:4px 6px;}
+  .input-title:hover{border-color:var(--line);}
+  .input-title:focus{background:var(--bg-panel-2);border-color:var(--cyan);}
+  .input-mono{font-family:var(--font-mono);}
+  .input-itemnum{font-size:12px;color:var(--text-muted);background:transparent;border:1px solid transparent;padding:2px 6px;max-width:220px;}
+  .input-itemnum:hover{border-color:var(--line);}
+  .input-itemnum:focus{background:var(--bg-panel-2);border-color:var(--cyan);color:var(--text);}
+  .detail-actions{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+  .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-bottom:18px;}
+  .detail-grid label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text-muted);}
+  .detail-grid .span-2{grid-column:1 / -1;}
+  .segmented{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;}
+  .seg-btn{flex:1;background:var(--bg-panel-2);border:none;color:var(--text-muted);padding:8px 0;font-size:12.5px;font-weight:500;border-right:1px solid var(--line);}
+  .seg-btn:last-child{border-right:none;}
+  .seg-btn.active{background:var(--green-dim);color:var(--green);}
+  .seg-btn.active[data-value="Buy"]{background:var(--amber-dim);color:var(--amber);}
+  .detail-section{background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin-bottom:18px;}
+  .cost-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .cost-label{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;}
+  .input-currency{font-family:var(--font-mono);font-size:15px;font-weight:600;}
+  .input-readonly{color:var(--cyan);background:var(--bg-panel-3);border-color:var(--line);}
+  .hint{font-size:10.5px;color:var(--text-faint);margin-top:5px;}
+  .breakdown{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);}
+  .breakdown-title{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+  .breakdown-row{display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:12px;}
+  .breakdown-row span:first-child{color:var(--text-muted);}
+  .breakdown-row span:last-child{font-family:var(--font-mono);color:var(--text);}
+  .breakdown-total{display:flex;justify-content:space-between;padding-top:7px;margin-top:4px;border-top:1px solid var(--line);font-size:12.5px;font-weight:600;}
+  .breakdown-total span:last-child{font-family:var(--font-mono);color:var(--cyan);}
+
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--bg-panel-3);border:1px solid var(--line-bright);color:var(--text);padding:10px 16px;border-radius:4px;font-size:12.5px;opacity:0;transform:translateY(6px);transition:opacity .18s,transform .18s;pointer-events:none;z-index:50;}
+  .toast.show{opacity:1;transform:translateY(0);}
+  .toast-success{border-color:var(--green);} .toast-error{border-color:var(--red);}
+
+  @media (max-width: 860px){
+    .main{grid-template-columns:1fr;grid-template-rows:45vh 1fr;}
+    .tree-panel{border-right:none;border-bottom:1px solid var(--line);}
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= LIBRARY VIEW ================= -->
+<div id="view-library" class="view">
+  <header class="topbar">
+    <div class="brand"><span class="brand-text">BOM APP</span></div>
+    <div class="spacer"></div>
+    <span id="folder-status" class="hint" style="color:var(--text-faint);"></span>
+    <button class="btn" id="btn-pick-folder">Choose BOM Folder</button>
+  </header>
+  <div id="library-content"></div>
+</div>
+
+<!-- ================= EDITOR VIEW ================= -->
+<div id="view-editor" class="view" hidden>
+  <header class="topbar">
+    <button class="btn btn-sm btn-ghost" id="btn-back">&larr; Library</button>
+    <span id="editor-title" class="brand-text" style="font-size:14px;"></span>
+    <div class="spacer"></div>
+    <span id="save-status" class="hint"></span>
+    <button class="btn btn-accent" id="btn-save">Save</button>
+  </header>
+
+  <div class="panel">
+    <div class="panel-head" id="product-info-head">
+      <span class="chev">&#9656;</span>
+      <span class="panel-title">Product Info</span>
+      <span class="panel-summary" id="product-info-summary"></span>
+    </div>
+    <div class="panel-body" id="product-info-body">
+      <div class="field-grid">
+        <label>Date<input class="input" type="date" data-hfield="date"></label>
+        <label>Finished Product Part Number<input class="input input-mono" data-hfield="partNumber"></label>
+        <label>Created By<input class="input" data-hfield="createdBy"></label>
+        <label>Approved By<input class="input" data-hfield="approvedBy"></label>
+        <label class="span-2" style="grid-column:1/-1;">Finished Product Image
+          <div class="image-field">
+            <div class="image-thumb" id="product-image-thumb"><span class="placeholder">no image</span></div>
+            <input type="file" accept="image/*" id="product-image-input">
+          </div>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <section class="tree-panel">
+      <div class="tree-panel-head">
+        <span class="panel-title">Structure</span>
+        <div class="tree-panel-tools">
+          <button class="btn btn-sm btn-ghost" id="btn-expand-all">Expand all</button>
+          <button class="btn btn-sm btn-ghost" id="btn-collapse-all">Collapse all</button>
+        </div>
+      </div>
+      <div id="tree-root" class="tree-scroll" role="tree"></div>
+      <button class="btn-add-root" id="btn-add-root">+ Add top-level item</button>
+      <div class="legend" id="type-legend"></div>
+    </section>
+    <section class="detail-panel" id="detail"></section>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head" id="notes-head">
+      <span class="chev">&#9656;</span>
+      <span class="panel-title">Product Notes / Specs / Founder Notes</span>
+    </div>
+    <div class="panel-body" id="notes-body">
+      <textarea class="input" id="notes-textarea" rows="4" placeholder="Additional product detail, specs, or founder notes go here&hellip;"></textarea>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<datalist id="uom-options">
+  <option value="Each"><option value="Set"><option value="Pair"><option value="Roll">
+  <option value="Sheet"><option value="Box"><option value="Pack">
+  <option value="Grams"><option value="Kilograms"><option value="Milligrams">
+  <option value="Meters"><option value="Centimeters"><option value="Millimeters">
+  <option value="Yards"><option value="Feet"><option value="Inches">
+  <option value="Liters"><option value="Milliliters"><option value="Gallons">
+</datalist>
+
+<script>
+(function(){
+  "use strict";
+
+  /* =========================================================
+     CONSTANTS
+  ========================================================= */
+  const TYPE_META = {
+    "Sub-Assembly":  { code:"SA", color:"#5FCBEB" },
+    "Semi-Finished": { code:"SF", color:"#F2A541" },
+    "Raw Material":  { code:"RM", color:"#7C93A8" },
+    "Packaging":     { code:"PK", color:"#B98CE0" },
+    "Accessory":     { code:"AC", color:"#F0789A" },
+    "Component":     { code:"CO", color:"#6FCF97" },
+    "Consumable":    { code:"CN", color:"#3FB8A8" },
+  };
+  const TYPE_NAMES = Object.keys(TYPE_META);
+  const COLS = ["Level","Item Number","Parent Item Number","Item Description","Item Type","Qty",
+    "UOM","Image","Material Spec","Make/Buy","Vendor","Vendor Part # / Tool #","Process Steps",
+    "Unit Cost","Extended Cost","Lead Time (Days)","Comments"];
+
+  let idCounter = 1;
+  const newId = () => "n" + (idCounter++);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const currencyFmt = new Intl.NumberFormat("en-US", { style:"currency", currency:"USD" });
+  const fmtCurrency = (v) => currencyFmt.format(Number(v)||0);
+
+  let toastTimer;
+  function showToast(msg, type){
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = "toast show" + (type ? " toast-" + type : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+  }
+
+  /* =========================================================
+     DATA MODEL
+  ========================================================= */
+  function makeNode(overrides){
+    return Object.assign({
+      id:newId(), itemNumber:"", description:"New item", itemType:"Component",
+      qty:1, uom:"Each", image:null, spec:"", makeBuy:"Buy", vendor:"", vendorPN:"",
+      processSteps:"", unitCost:0, leadTime:null, comments:"", children:[], expanded:true,
+    }, overrides || {});
+  }
+  function makeBOM(partNumber){
+    return {
+      header:{ date:new Date().toISOString().slice(0,10), partNumber:partNumber||"", productImage:null, createdBy:"", approvedBy:"" },
+      notes:"",
+      tree:[],
+    };
+  }
+  function unitCost(n){
+    if(!n.children || n.children.length===0) return Number(n.unitCost)||0;
+    return n.children.reduce((s,c)=> s + (Number(c.qty)||0) * unitCost(c), 0);
+  }
+  function extCost(n){ return (Number(n.qty)||0) * unitCost(n); }
+  function countAll(list){ let c=0; (list||[]).forEach(n=>{c+=1+countAll(n.children);}); return c; }
+  function locate(id, nodes, parent){
+    nodes = nodes || currentBOM.tree;
+    for(const n of nodes){
+      if(n.id===id) return {node:n, siblings:nodes, parent};
+      const f = locate(id, n.children, n);
+      if(f) return f;
+    }
+    return null;
+  }
+  function deepClone(n){ return Object.assign({}, n, {id:newId(), children:(n.children||[]).map(deepClone)}); }
+
+  /* =========================================================
+     STATE
+  ========================================================= */
+  let dirHandle = null;
+  let currentFileHandle = null;
+  let currentBOM = null;
+  let selectedId = null;
+  let dirty = false;
+
+  /* =========================================================
+     INDEXEDDB (persist the folder handle across visits)
+  ========================================================= */
+  function idbOpen(){
+    return new Promise((resolve, reject)=>{
+      const req = indexedDB.open("bom-app-store", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("handles");
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSet(key, val){
+    const db = await idbOpen();
+    return new Promise((resolve,reject)=>{
+      const tx = db.transaction("handles","readwrite");
+      tx.objectStore("handles").put(val, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbGet(key){
+    const db = await idbOpen();
+    return new Promise((resolve,reject)=>{
+      const tx = db.transaction("handles","readonly");
+      const req = tx.objectStore("handles").get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /* =========================================================
+     FILE SYSTEM ACCESS LAYER
+     (swap the inside of these functions later to move to Dropbox
+      or any other backend -- nothing outside this block should
+      need to change)
+  ========================================================= */
+  async function fsPickFolder(){
+    if(!window.showDirectoryPicker){
+      showToast("This browser doesn't support the File System Access API. Use Chrome or Edge.", "error");
+      return false;
+    }
+    try{
+      dirHandle = await window.showDirectoryPicker({ mode:"readwrite" });
+      await idbSet("bomFolder", dirHandle);
+      return true;
+    }catch(e){
+      if(e.name !== "AbortError") showToast("Couldn't get folder access: " + e.message, "error");
+      return false;
+    }
+  }
+  async function fsTryRestoreFolder(){
+    const saved = await idbGet("bomFolder");
+    if(!saved) return false;
+    try{
+      const perm = await saved.queryPermission({ mode:"readwrite" });
+      if(perm === "granted"){ dirHandle = saved; return true; }
+      const req = await saved.requestPermission({ mode:"readwrite" });
+      if(req === "granted"){ dirHandle = saved; return true; }
+    }catch(e){ /* handle may be stale (folder moved/deleted) -- fall through */ }
+    return false;
+  }
+  async function fsListBOMFiles(){
+    const files = [];
+    for await (const [name, handle] of dirHandle.entries()){
+      if(handle.kind === "file" && /\.xlsx$/i.test(name)) files.push({ name, handle });
+    }
+    files.sort((a,b)=> a.name.localeCompare(b.name));
+    return files;
+  }
+  async function fsCreateBOMFile(fileName){
+    return await dirHandle.getFileHandle(fileName, { create:true });
+  }
+  async function fsReadFile(fileHandle){
+    const file = await fileHandle.getFile();
+    return await file.arrayBuffer();
+  }
+  async function fsWriteFile(fileHandle, arrayBuffer){
+    const writable = await fileHandle.createWritable();
+    await writable.write(arrayBuffer);
+    await writable.close();
+  }
+
+  /* =========================================================
+     IMAGE HELPERS
+  ========================================================= */
+  function fileToDataURL(file){
+    return new Promise((resolve,reject)=>{
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  // downscale to a max dimension before embedding, to keep the .xlsx small
+  function downscaleDataURL(dataURL, maxDim){
+    return new Promise((resolve)=>{
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if(Math.max(width,height) > maxDim){
+          const scale = maxDim / Math.max(width,height);
+          width = Math.round(width*scale); height = Math.round(height*scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.onerror = () => resolve(dataURL);
+      img.src = dataURL;
+    });
+  }
+  function dataURLtoBase64(dataURL){
+    const parts = dataURL.split(",");
+    const meta = parts[0];
+    const ext = /png/.test(meta) ? "png" : /jpeg|jpg/.test(meta) ? "jpeg" : "png";
+    return { base64: parts[1], extension: ext };
+  }
+
+  /* =========================================================
+     EXCELJS <-> DATA MODEL
+  ========================================================= */
+  async function bomToWorkbook(bom){
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("BOM");
+    const navy = "FF1F4E78";
+    ws.getColumn(1).width = 7;
+    const widths = [7,14,16,24,13,8,10,10,22,10,16,18,24,11,13,12,26];
+    widths.forEach((w,i)=> ws.getColumn(i+1).width = w);
+
+    ws.mergeCells(1,1,1,17);
+    const titleCell = ws.getCell(1,1);
+    titleCell.value = "Bill of Materials \u2014 " + (bom.header.partNumber || "(no part number)");
+    titleCell.font = { name:"Arial", size:16, bold:true, color:{argb:navy} };
+    ws.getRow(1).height = 26;
+
+    ws.getCell(3,1).value = "Date"; ws.getCell(3,2).value = bom.header.date || "";
+    ws.getCell(3,4).value = "Created By"; ws.getCell(3,5).value = bom.header.createdBy || "";
+    ws.getCell(3,7).value = "Approved By"; ws.getCell(3,8).value = bom.header.approvedBy || "";
+    ws.getCell(4,1).value = "Finished Product Part #"; ws.getCell(4,2).value = bom.header.partNumber || "";
+    [3,4].forEach(r=>{ for(let c=1;c<=8;c+=3){ ws.getCell(r,c).font = {name:"Arial",size:9.5,bold:true,color:{argb:"FF7C93A8"}}; } });
+
+    ws.getCell(6,1).value = "Finished Product Image";
+    ws.getCell(6,1).font = {name:"Arial",size:9.5,bold:true,color:{argb:"FF7C93A8"}};
+    if(bom.header.productImage){
+      try{
+        const {base64, extension} = dataURLtoBase64(bom.header.productImage);
+        const imgId = wb.addImage({ base64, extension });
+        ws.addImage(imgId, { tl:{col:1, row:6}, ext:{width:110, height:110} });
+      }catch(e){ /* skip image on failure, don't block the save */ }
+    }
+
+    const HEADER_ROW = 13;
+    COLS.forEach((h,i)=>{
+      const cell = ws.getCell(HEADER_ROW, i+1);
+      cell.value = h;
+      cell.font = {name:"Arial", size:10, bold:true, color:{argb:"FFFFFFFF"}};
+      cell.fill = {type:"pattern", pattern:"solid", fgColor:{argb:navy}};
+      cell.alignment = {horizontal:"center", vertical:"middle", wrapText:true};
+    });
+    ws.getRow(HEADER_ROW).height = 26;
+
+    let r = HEADER_ROW + 1;
+    function writeNode(n, level, parentNum){
+      const row = r++;
+      const vals = [level, n.itemNumber, parentNum||"", n.description, n.itemType, n.qty, n.uom,
+        "", n.spec, n.makeBuy, n.vendor, n.vendorPN, n.processSteps,
+        Number(unitCost(n).toFixed(2)), Number(extCost(n).toFixed(2)), n.leadTime==null?"":n.leadTime, n.comments];
+      vals.forEach((v,i)=>{ ws.getCell(row, i+1).value = v; });
+      ws.getRow(row).height = 20;
+      if(n.image){
+        try{
+          const {base64, extension} = dataURLtoBase64(n.image);
+          const imgId = wb.addImage({ base64, extension });
+          ws.addImage(imgId, { tl:{col:7, row:row-1}, ext:{width:26, height:26} });
+        }catch(e){ /* skip image on failure */ }
+      }
+      (n.children||[]).forEach(c => writeNode(c, level+1, n.itemNumber));
+    }
+    (bom.tree||[]).forEach(n => writeNode(n, 1, ""));
+
+    const notesRow = r + 1;
+    ws.getCell(notesRow, 1).value = "Product Notes / Specs / Founder Notes";
+    ws.getCell(notesRow, 1).font = {name:"Arial", size:11, bold:true, color:{argb:navy}};
+    ws.mergeCells(notesRow+1, 1, notesRow+4, 17);
+    const notesCell = ws.getCell(notesRow+1, 1);
+    notesCell.value = bom.notes || "";
+    notesCell.alignment = {wrapText:true, vertical:"top", horizontal:"left"};
+
+    return wb;
+  }
+
+  async function workbookToBOM(arrayBuffer){
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(arrayBuffer);
+    const ws = wb.worksheets[0];
+    const bom = makeBOM("");
+
+    bom.header.date = String(ws.getCell(3,2).value || "");
+    bom.header.createdBy = String(ws.getCell(3,5).value || "");
+    bom.header.approvedBy = String(ws.getCell(3,8).value || "");
+    bom.header.partNumber = String(ws.getCell(4,2).value || "");
+
+    // recover images: match each embedded image to the row it's anchored on
+    const imagesByRow = {};
+    try{
+      const images = ws.getImages() || [];
+      images.forEach(img=>{
+        const rowIdx = img.range && img.range.tl ? Math.round(img.range.tl.row) : null;
+        if(rowIdx == null) return;
+        const media = wb.model.media.find(m => m.index === img.imageId || m === wb.model.media[img.imageId]) || wb.model.media[img.imageId];
+        if(!media) return;
+        const b64 = media.buffer ? arrayBufferToBase64(media.buffer) : media.base64;
+        if(!b64) return;
+        imagesByRow[rowIdx] = "data:image/" + (media.extension||"png") + ";base64," + b64;
+      });
+    }catch(e){ /* image recovery is best-effort; BOM data still loads without it */ }
+
+    if(imagesByRow[6] !== undefined) bom.header.productImage = imagesByRow[6];
+
+    const HEADER_ROW = 13;
+    const rows = [];
+    let rIdx = HEADER_ROW + 1;
+    while(true){
+      const row = ws.getRow(rIdx);
+      const level = row.getCell(1).value;
+      if(level === null || level === undefined || level === "") break;
+      rows.push({
+        rowIdx, level:Number(level), itemNumber:String(row.getCell(2).value||""),
+        parentItemNumber:String(row.getCell(3).value||""), description:String(row.getCell(4).value||""),
+        itemType:String(row.getCell(5).value||"Component"), qty:Number(row.getCell(6).value)||0,
+        uom:String(row.getCell(7).value||""), spec:String(row.getCell(9).value||""),
+        makeBuy:String(row.getCell(10).value||"Buy"), vendor:String(row.getCell(11).value||""),
+        vendorPN:String(row.getCell(12).value||""), processSteps:String(row.getCell(13).value||""),
+        unitCost:Number(row.getCell(14).value)||0,
+        leadTime: row.getCell(16).value===""||row.getCell(16).value==null ? null : Number(row.getCell(16).value),
+        comments:String(row.getCell(17).value||""),
+      });
+      rIdx++;
+    }
+    // rebuild the tree from the flat Level/Parent rows
+    const byItemNumber = {};
+    const nodes = rows.map(rw=>{
+      const n = makeNode({
+        itemNumber: rw.itemNumber, description: rw.description, itemType: rw.itemType,
+        qty: rw.qty, uom: rw.uom, spec: rw.spec, makeBuy: rw.makeBuy, vendor: rw.vendor,
+        vendorPN: rw.vendorPN, processSteps: rw.processSteps, unitCost: rw.unitCost,
+        leadTime: rw.leadTime, comments: rw.comments,
+        image: imagesByRow[rw.rowIdx-1] || null, children: [],
+      });
+      n._parentNum = rw.parentItemNumber;
+      byItemNumber[rw.itemNumber] = n;
+      return n;
+    });
+    nodes.forEach(n=>{
+      if(n._parentNum && byItemNumber[n._parentNum]) byItemNumber[n._parentNum].children.push(n);
+      else bom.tree.push(n);
+      delete n._parentNum;
+    });
+
+    // notes: scan below the data for the notes block
+    for(let scan = rIdx+1; scan < rIdx+6; scan++){
+      const v = ws.getCell(scan,1).value;
+      if(typeof v === "string" && v.trim()){ bom.notes = v; break; }
+    }
+    return bom;
+  }
+  function arrayBufferToBase64(buffer){
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    for(let i=0;i<bytes.byteLength;i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+
+  /* =========================================================
+     LIBRARY VIEW
+  ========================================================= */
+  const libraryContent = document.getElementById("library-content");
+  const folderStatus = document.getElementById("folder-status");
+
+  async function renderLibrary(){
+    if(!dirHandle){
+      libraryContent.innerHTML = '<div class="library-empty"><h2>No folder selected</h2><p>Choose a folder on your PC to store BOM files in. You\'ll only need to do this once.</p></div>';
+      folderStatus.textContent = "";
+      return;
+    }
+    folderStatus.textContent = "Folder: " + dirHandle.name;
+    libraryContent.innerHTML = '<div class="library-empty"><p>Loading BOMs&hellip;</p></div>';
+    const files = await fsListBOMFiles();
+    const cards = [];
+    for(const f of files){
+      let summary = { partNumber:f.name.replace(/\.xlsx$/i,""), date:"", thumb:null };
+      try{
+        const buf = await fsReadFile(f.handle);
+        const bom = await workbookToBOM(buf);
+        summary.partNumber = bom.header.partNumber || summary.partNumber;
+        summary.date = bom.header.date || "";
+        summary.thumb = bom.header.productImage;
+        summary.itemCount = countAll(bom.tree);
+      }catch(e){ /* if a file fails to parse, still list it by filename */ }
+      cards.push({ file:f, summary });
+    }
+    let html = '<div class="bom-grid">';
+    html += '<div class="bom-card new-bom-card" id="card-new">+ Create New BOM</div>';
+    cards.forEach((c,i)=>{
+      html += `<div class="bom-card" data-idx="${i}">
+        <div class="bom-card-thumb">${c.summary.thumb ? `<img src="${c.summary.thumb}">` : '<span class="placeholder">no image</span>'}</div>
+        <div class="bom-card-title">${esc(c.summary.partNumber)}</div>
+        <div class="bom-card-sub">${esc(c.summary.date)}${c.summary.itemCount!=null?' &middot; '+c.summary.itemCount+' items':''}</div>
+      </div>`;
+    });
+    html += '</div>';
+    libraryContent.innerHTML = html;
+    document.getElementById("card-new").addEventListener("click", createNewBOM);
+    libraryContent.querySelectorAll(".bom-card[data-idx]").forEach(el=>{
+      el.addEventListener("click", () => openBOMFile(cards[Number(el.dataset.idx)].file));
+    });
+  }
+
+  async function createNewBOM(){
+    const partNumber = prompt("Finished Product Part Number for the new BOM:");
+    if(!partNumber) return;
+    const fileName = partNumber.replace(/[\\/:*?"<>|]/g,"_") + ".xlsx";
+    try{
+      const fileHandle = await fsCreateBOMFile(fileName);
+      currentFileHandle = fileHandle;
+      currentBOM = makeBOM(partNumber);
+      dirty = true;
+      openEditor();
+      showToast("New BOM created", "success");
+    }catch(e){ showToast("Couldn't create file: " + e.message, "error"); }
+  }
+  async function openBOMFile(file){
+    try{
+      const buf = await fsReadFile(file.handle);
+      currentBOM = await workbookToBOM(buf);
+      currentFileHandle = file.handle;
+      dirty = false;
+      openEditor();
+    }catch(e){ showToast("Couldn't open file: " + e.message, "error"); }
+  }
+
+  document.getElementById("btn-pick-folder").addEventListener("click", async () => {
+    if(await fsPickFolder()) renderLibrary();
+  });
+
+  /* =========================================================
+     EDITOR VIEW
+  ========================================================= */
+  const viewLibrary = document.getElementById("view-library");
+  const viewEditor = document.getElementById("view-editor");
+  const treeRootEl = document.getElementById("tree-root");
+  const detailEl = document.getElementById("detail");
+
+  function openEditor(){
+    selectedId = currentBOM.tree[0] ? currentBOM.tree[0].id : null;
+    document.getElementById("editor-title").textContent = currentBOM.header.partNumber || "(untitled)";
+    fillHeaderForm();
+    renderTypeLegend();
+    renderTree();
+    renderDetail();
+    updateSaveStatus();
+    viewLibrary.hidden = true;
+    viewEditor.hidden = false;
+  }
+  function backToLibrary(){
+    if(dirty && !confirm("You have unsaved changes. Leave without saving?")) return;
+    viewEditor.hidden = true;
+    viewLibrary.hidden = false;
+    renderLibrary();
+  }
+  document.getElementById("btn-back").addEventListener("click", backToLibrary);
+
+  function updateSaveStatus(){
+    document.getElementById("save-status").textContent = dirty ? "Unsaved changes" : "Saved";
+    document.getElementById("save-status").style.color = dirty ? "var(--amber)" : "var(--text-faint)";
+  }
+  function markDirty(){ dirty = true; updateSaveStatus(); }
+
+  function renderTypeLegend(){
+    const el = document.getElementById("type-legend");
+    el.innerHTML = TYPE_NAMES.map(t=>{
+      const m = TYPE_META[t];
+      return `<span><i class="chip" style="color:${m.color};border-color:${m.color};">${m.code}</i>${t}</span>`;
+    }).join("");
+  }
+
+  /* ---- product info panel ---- */
+  const productInfoHead = document.getElementById("product-info-head");
+  const productInfoBody = document.getElementById("product-info-body");
+  productInfoHead.addEventListener("click", ()=>{
+    productInfoHead.classList.toggle("open");
+    productInfoBody.classList.toggle("open");
+  });
+  const notesHead = document.getElementById("notes-head");
+  const notesBody = document.getElementById("notes-body");
+  notesHead.addEventListener("click", ()=>{
+    notesHead.classList.toggle("open");
+    notesBody.classList.toggle("open");
+  });
+
+  function fillHeaderForm(){
+    document.querySelectorAll("[data-hfield]").forEach(el=>{
+      el.value = currentBOM.header[el.dataset.hfield] || "";
+    });
+    updateProductInfoSummary();
+    const thumb = document.getElementById("product-image-thumb");
+    thumb.innerHTML = currentBOM.header.productImage
+      ? `<img src="${currentBOM.header.productImage}">`
+      : '<span class="placeholder">no image</span>';
+    document.getElementById("notes-textarea").value = currentBOM.notes || "";
+  }
+  function updateProductInfoSummary(){
+    const h = currentBOM.header;
+    document.getElementById("product-info-summary").textContent =
+      [h.partNumber, h.date, h.createdBy && ("by " + h.createdBy)].filter(Boolean).join(" \u00b7 ");
+  }
+  document.querySelectorAll("[data-hfield]").forEach(el=>{
+    el.addEventListener("input", ()=>{
+      currentBOM.header[el.dataset.hfield] = el.value;
+      if(el.dataset.hfield === "partNumber") document.getElementById("editor-title").textContent = el.value || "(untitled)";
+      updateProductInfoSummary();
+      markDirty();
+    });
+  });
+  document.getElementById("product-image-input").addEventListener("change", async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const raw = await fileToDataURL(file);
+    const small = await downscaleDataURL(raw, 400);
+    currentBOM.header.productImage = small;
+    document.getElementById("product-image-thumb").innerHTML = `<img src="${small}">`;
+    markDirty();
+  });
+  document.getElementById("notes-textarea").addEventListener("input", (e)=>{
+    currentBOM.notes = e.target.value;
+    markDirty();
+  });
+
+  /* ---- tree rendering ---- */
+  function renderTree(){
+    if(currentBOM.tree.length === 0){
+      treeRootEl.innerHTML = '<div class="empty-tree">No items yet. Use "+ Add top-level item" below to start.</div>';
+    } else {
+      treeRootEl.innerHTML = '<ul class="tree-root">' + currentBOM.tree.map(n=>renderNode(n)).join("") + '</ul>';
+    }
+  }
+  function renderNode(n){
+    const hasChildren = n.children && n.children.length > 0;
+    const meta = TYPE_META[n.itemType] || TYPE_META["Component"];
+    const selected = n.id === selectedId;
+    const ext = extCost(n);
+    const chevron = hasChildren
+      ? `<button class="chevron" data-id="${n.id}" tabindex="-1">${n.expanded?"\u25be":"\u25b8"}</button>`
+      : '<span class="chevron chevron--empty"></span>';
+    const thumb = n.image ? `<img class="row-thumb" src="${n.image}">` : '';
+    let html = '<li class="tree-li"><div class="tree-row-wrap">';
+    html += `<div class="tree-row${selected?' selected':''}" data-id="${n.id}" tabindex="0">`;
+    html += chevron;
+    html += `<span class="chip" style="color:${meta.color};border-color:${meta.color};" title="${esc(n.itemType)}">${meta.code}</span>`;
+    if(thumb) html += thumb;
+    html += '<div class="row-main">';
+    html += `<div class="row-line1"><span class="row-desc">${esc(n.description||"(untitled)")}</span><span class="row-cost">${fmtCurrency(ext)}</span></div>`;
+    html += `<div class="row-line2"><span class="row-itemnum">${esc(n.itemNumber||"\u2014")}</span>`;
+    if(Number(n.qty)!==1) html += `<span>&times; ${n.qty}${n.uom?' '+esc(n.uom):''}</span>`;
+    html += `<span class="row-dot" style="background:${n.makeBuy==='Buy'?'var(--amber)':'var(--green)'};" title="${esc(n.makeBuy)}"></span>`;
+    html += '</div></div></div></div>';
+    if(hasChildren && n.expanded){
+      html += '<ul class="tree-children">' + n.children.map(c=>renderNode(c)).join("") + '</ul>';
+    }
+    html += '</li>';
+    return html;
+  }
+  treeRootEl.addEventListener("click", (e)=>{
+    const chev = e.target.closest(".chevron");
+    if(chev && !chev.classList.contains("chevron--empty")){
+      const loc = locate(chev.dataset.id);
+      if(loc){ loc.node.expanded = !loc.node.expanded; renderTree(); }
+      return;
+    }
+    const row = e.target.closest(".tree-row");
+    if(row){ selectedId = row.dataset.id; renderTree(); renderDetail(); }
+  });
+  document.getElementById("btn-expand-all").addEventListener("click", ()=>{
+    (function walk(l){l.forEach(n=>{n.expanded=true; walk(n.children);});})(currentBOM.tree);
+    renderTree();
+  });
+  document.getElementById("btn-collapse-all").addEventListener("click", ()=>{
+    (function walk(l){l.forEach(n=>{n.expanded=false; walk(n.children);});})(currentBOM.tree);
+    renderTree();
+  });
+  document.getElementById("btn-add-root").addEventListener("click", ()=> addChild(null));
+
+  function addChild(parentId){
+    const n = makeNode({ itemType: parentId ? "Component" : "Sub-Assembly" });
+    if(parentId){
+      const loc = locate(parentId);
+      if(!loc) return;
+      loc.node.children.push(n);
+      loc.node.expanded = true;
+    } else {
+      currentBOM.tree.push(n);
+    }
+    selectedId = n.id;
+    renderTree(); renderDetail(); markDirty();
+    setTimeout(()=>{ const el = document.querySelector(".input-title"); if(el){el.focus(); el.select();} }, 0);
+  }
+  function duplicateNode(id){
+    const loc = locate(id);
+    if(!loc) return;
+    const clone = deepClone(loc.node);
+    loc.siblings.splice(loc.siblings.indexOf(loc.node)+1, 0, clone);
+    selectedId = clone.id;
+    renderTree(); renderDetail(); markDirty();
+  }
+  function deleteNode(id){
+    const loc = locate(id);
+    if(!loc) return;
+    const descCount = countAll(loc.node.children);
+    const label = loc.node.description || loc.node.itemNumber || "this item";
+    const msg = descCount>0
+      ? `Delete "${label}" and its ${descCount} sub-item${descCount>1?'s':''}? This can't be undone.`
+      : `Delete "${label}"? This can't be undone.`;
+    if(!confirm(msg)) return;
+    const idx = loc.siblings.indexOf(loc.node);
+    loc.siblings.splice(idx,1);
+    const fallback = loc.siblings[idx] || loc.siblings[idx-1] || loc.parent || currentBOM.tree[0] || null;
+    selectedId = fallback ? fallback.id : null;
+    renderTree(); renderDetail(); markDirty();
+  }
+
+  /* ---- detail panel ---- */
+  function typeOptionsHTML(current){
+    return TYPE_NAMES.map(t=>`<option value="${t}"${t===current?' selected':''}>${t}</option>`).join("");
+  }
+  function breakdownHTML(n){
+    const rows = n.children.map(c=>
+      `<div class="breakdown-row"><span>${c.qty} \u00d7 ${esc(c.description||c.itemNumber||"item")}</span><span>${fmtCurrency((Number(c.qty)||0)*unitCost(c))}</span></div>`
+    ).join("");
+    return `<div class="breakdown"><div class="breakdown-title">How this cost is calculated</div>${rows}
+      <div class="breakdown-total"><span>Unit cost (1\u00d7 ${esc(n.description||"this item")})</span><span>${fmtCurrency(unitCost(n))}</span></div></div>`;
+  }
+  function renderDetail(){
+    const loc = selectedId ? locate(selectedId) : null;
+    if(!loc){
+      detailEl.innerHTML = '<div class="detail-empty">Select an item on the left, or add a top-level item to get started.</div>';
+      return;
+    }
+    const n = loc.node;
+    const meta = TYPE_META[n.itemType] || TYPE_META["Component"];
+    const isLeaf = n.children.length === 0;
+    const uc = unitCost(n);
+    const ec = extCost(n);
+    const qtyLabel = loc.parent ? "Qty per parent" : "Qty to build";
+    const costLabel = loc.parent ? "Contribution to parent" : "Total build cost";
+
+    let html = "";
+    html += `<div class="detail-header"><span class="type-chip-lg" style="color:${meta.color};border-color:${meta.color};">${meta.code}</span>`;
+    html += '<div class="detail-titles">';
+    html += `<input class="input input-title" data-field="description" value="${esc(n.description)}" placeholder="Item description">`;
+    html += `<input class="input input-mono input-itemnum" data-field="itemNumber" value="${esc(n.itemNumber)}" placeholder="Item number">`;
+    html += '</div></div>';
+
+    html += '<div class="detail-actions">';
+    html += '<button class="btn btn-sm btn-accent" data-action="add-child">+ Add child</button>';
+    html += '<button class="btn btn-sm btn-ghost" data-action="duplicate">Duplicate</button>';
+    html += '<button class="btn btn-sm btn-danger" data-action="delete">Delete</button>';
+    html += '</div>';
+
+    html += '<div class="detail-grid">';
+    html += `<label>Item type<select class="input" data-field="itemType">${typeOptionsHTML(n.itemType)}</select></label>`;
+    html += `<label>Make / Buy<div class="segmented">
+      <button type="button" class="seg-btn ${n.makeBuy!=='Buy'?'active':''}" data-value="Make">Make</button>
+      <button type="button" class="seg-btn ${n.makeBuy==='Buy'?'active':''}" data-value="Buy">Buy</button>
+      </div></label>`;
+    html += `<label>${qtyLabel}<input class="input" type="number" min="0" step="any" data-field="qty" value="${n.qty}"></label>`;
+    html += `<label>UOM<input class="input" list="uom-options" data-field="uom" value="${esc(n.uom)}"></label>`;
+    html += `<label class="span-2">Material Specification<input class="input" data-field="spec" value="${esc(n.spec)}"></label>`;
+    html += `<label class="span-2">Item Image
+      <div class="image-field"><div class="image-thumb" id="node-image-thumb">${n.image?`<img src="${n.image}">`:'<span class="placeholder">no image</span>'}</div>
+      <input type="file" accept="image/*" id="node-image-input"></div></label>`;
+    html += '</div>';
+
+    html += '<div class="detail-section cost-section"><div class="cost-row">';
+    html += '<div><div class="cost-label">Unit cost</div>';
+    html += isLeaf
+      ? `<input class="input input-currency" type="number" min="0" step="0.01" data-field="unitCost" value="${n.unitCost||0}">`
+      : `<div class="input input-currency input-readonly">${fmtCurrency(uc)}</div><div class="hint">Rolled up automatically from ${n.children.length} sub-item${n.children.length>1?'s':''}</div>`;
+    html += '</div>';
+    html += `<div><div class="cost-label">${costLabel}</div><div class="input input-currency input-readonly" id="ext-cost-readout">${fmtCurrency(ec)}</div></div>`;
+    html += '</div>';
+    if(!isLeaf) html += breakdownHTML(n);
+    html += '</div>';
+
+    html += '<div class="detail-grid">';
+    html += `<label>Vendor Name<input class="input" data-field="vendor" value="${esc(n.vendor)}"></label>`;
+    html += `<label>Vendor Part # / Tool #<input class="input input-mono" data-field="vendorPN" value="${esc(n.vendorPN)}"></label>`;
+    html += `<label>Lead Time (Days)<input class="input" type="number" min="0" step="1" data-field="leadTime" value="${n.leadTime==null?'':n.leadTime}"></label>`;
+    html += `<label class="span-2">Process Steps<textarea class="input" data-field="processSteps" rows="2">${esc(n.processSteps)}</textarea></label>`;
+    html += `<label class="span-2">Comments<textarea class="input" data-field="comments" rows="2">${esc(n.comments)}</textarea></label>`;
+    html += '</div>';
+
+    detailEl.innerHTML = html;
+    attachDetailListeners(n);
+  }
+  const NUMERIC_FIELDS = new Set(["qty","unitCost","leadTime"]);
+  const TREE_AFFECTING = new Set(["description","itemNumber","qty","unitCost"]);
+  function attachDetailListeners(n){
+    detailEl.querySelectorAll("[data-field]").forEach(el=>{
+      const field = el.dataset.field;
+      const evt = el.tagName === "SELECT" ? "change" : "input";
+      el.addEventListener(evt, ()=>{
+        n[field] = NUMERIC_FIELDS.has(field)
+          ? (el.value===""?(field==="leadTime"?null:0):Number(el.value))
+          : el.value;
+        if(field==="qty" || field==="unitCost"){
+          const ecEl = document.getElementById("ext-cost-readout");
+          if(ecEl) ecEl.textContent = fmtCurrency(extCost(n));
+        }
+        if(TREE_AFFECTING.has(field)) renderTree();
+        if(el.tagName === "SELECT") renderDetail();
+        markDirty();
+      });
+    });
+    detailEl.querySelectorAll(".seg-btn").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        btn.parentElement.querySelectorAll(".seg-btn").forEach(b=>b.classList.toggle("active", b===btn));
+        n.makeBuy = btn.dataset.value;
+        renderTree(); markDirty();
+      });
+    });
+    detailEl.querySelectorAll("[data-action]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const a = btn.dataset.action;
+        if(a==="add-child") addChild(n.id);
+        else if(a==="duplicate") duplicateNode(n.id);
+        else if(a==="delete") deleteNode(n.id);
+      });
+    });
+    const imgInput = document.getElementById("node-image-input");
+    if(imgInput){
+      imgInput.addEventListener("change", async (e)=>{
+        const file = e.target.files[0];
+        if(!file) return;
+        const raw = await fileToDataURL(file);
+        const small = await downscaleDataURL(raw, 300);
+        n.image = small;
+        document.getElementById("node-image-thumb").innerHTML = `<img src="${small}">`;
+        renderTree(); markDirty();
+      });
+    }
+  }
+
+  /* ---- save ---- */
+  document.getElementById("btn-save").addEventListener("click", async ()=>{
+    if(!currentFileHandle){ showToast("No file open", "error"); return; }
+    try{
+      const wb = await bomToWorkbook(currentBOM);
+      const buf = await wb.xlsx.writeBuffer();
+      await fsWriteFile(currentFileHandle, buf);
+      dirty = false;
+      updateSaveStatus();
+      showToast("Saved", "success");
+    }catch(e){ showToast("Save failed: " + e.message, "error"); }
+  });
+
+  /* =========================================================
+     INIT
+  ========================================================= */
+  (async function init(){
+    if(await fsTryRestoreFolder()){
+      await renderLibrary();
+    } else {
+      await renderLibrary();
+    }
+  })();
+
+})();
+</script>
+</body>
+</html>
