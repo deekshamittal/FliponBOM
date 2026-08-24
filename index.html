@@ -479,7 +479,7 @@
       try{
         const {base64, extension} = dataURLtoBase64(bom.header.productImage);
         const imgId = wb.addImage({ base64, extension });
-        ws.addImage(imgId, { tl:{col:1, row:6}, ext:{width:110, height:110} });
+        ws.addImage(imgId, { tl:{col:1, row:5}, ext:{width:110, height:110} });
       }catch(e){ /* skip image on failure, don't block the save */ }
     }
 
@@ -549,7 +549,7 @@
       });
     }catch(e){ /* image recovery is best-effort; BOM data still loads without it */ }
 
-    if(imagesByRow[6] !== undefined) bom.header.productImage = imagesByRow[6];
+    if(imagesByRow[5] !== undefined) bom.header.productImage = imagesByRow[5];
 
     const HEADER_ROW = 13;
     const rows = [];
@@ -559,7 +559,7 @@
       const level = row.getCell(1).value;
       if(level === null || level === undefined || level === "") break;
       rows.push({
-        rowIdx, level:Number(level), itemNumber:String(row.getCell(2).value||""),
+        rowIdx:rIdx, level:Number(level), itemNumber:String(row.getCell(2).value||""),
         parentItemNumber:String(row.getCell(3).value||""), description:String(row.getCell(4).value||""),
         itemType:String(row.getCell(5).value||"Component"), qty:Number(row.getCell(6).value)||0,
         uom:String(row.getCell(7).value||""), spec:String(row.getCell(9).value||""),
@@ -591,11 +591,10 @@
       delete n._parentNum;
     });
 
-    // notes: scan below the data for the notes block
-    for(let scan = rIdx+1; scan < rIdx+6; scan++){
-      const v = ws.getCell(scan,1).value;
-      if(typeof v === "string" && v.trim()){ bom.notes = v; break; }
-    }
+    // notes value sits two rows below the last item row: one row for the
+    // "Product Notes..." label (written at rIdx+1), one more for the value itself.
+    const notesVal = ws.getCell(rIdx+2, 1).value;
+    if(typeof notesVal === "string") bom.notes = notesVal;
     return bom;
   }
   function arrayBufferToBase64(buffer){
