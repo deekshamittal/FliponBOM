@@ -512,7 +512,7 @@
         try{
           const {base64, extension} = dataURLtoBase64(n.image);
           const imgId = wb.addImage({ base64, extension });
-          ws.addImage(imgId, { tl:{col:7, row:row-1}, ext:{width:26, height:26} });
+          ws.addImage(imgId, { tl:{col:7, row:row-1}, ext:{width:18, height:18} });
         }catch(e){ console.error("Flipon BOM: item image embed failed for", n.itemNumber||n.description, e); imageErrors.push((n.itemNumber||n.description||"item") + ": " + e.message); }
       }
       (n.children||[]).forEach(c => writeNode(c, level+1, n.itemNumber));
