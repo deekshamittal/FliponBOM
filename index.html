@@ -3,26 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BOM App</title>
+<title>Flipon &mdash; BOM App</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
   :root{
-    --bg-base:#0D141F; --bg-panel:#131C29; --bg-panel-2:#182333; --bg-panel-3:#1E2C3F;
-    --line:#25384E; --line-bright:#3D6E96;
-    --cyan:#5FCBEB; --cyan-dim:rgba(95,203,235,.14);
-    --amber:#F2A541; --amber-dim:rgba(242,165,65,.16);
-    --green:#6FCF97; --green-dim:rgba(111,207,151,.14);
-    --red:#E5695B; --red-dim:rgba(229,105,91,.14);
-    --violet:#B98CE0; --rose:#F0789A; --teal:#3FB8A8; --slate:#7C93A8;
-    --text:#E8EEF4; --text-muted:#7C93A8; --text-faint:#4C6178;
+    --bg-base:#F7F9FC; --bg-panel:#FFFFFF; --bg-panel-2:#F1F4F8; --bg-panel-3:#E8EDF3;
+    --line:#D7E0EA; --line-bright:#A8BFD4;
+    --cyan:#0E7A9E; --cyan-dim:#E1F1F7;
+    --amber:#B36A00; --amber-dim:#FBEEDC;
+    --green:#278C4A; --green-dim:#E3F5E9;
+    --red:#C0392B; --red-dim:#FBEAE8;
+    --violet:#7C4FC2; --rose:#CC4A75; --teal:#1A9483; --slate:#64748B;
+    --text:#16212E; --text-muted:#5A6B7E; --text-faint:#94A3B3;
     --font-ui:'IBM Plex Sans',system-ui,sans-serif; --font-mono:'IBM Plex Mono',monospace;
   }
   *{box-sizing:border-box;} html,body{height:100%;margin:0;}
   body{
     background-color:var(--bg-base);
-    background-image:radial-gradient(circle, rgba(61,110,150,.35) 1px, transparent 1px);
+    background-image:radial-gradient(circle, rgba(61,110,150,.16) 1px, transparent 1px);
     background-size:26px 26px;
     color:var(--text); font-family:var(--font-ui); font-size:14px; -webkit-font-smoothing:antialiased;
   }
@@ -32,10 +32,12 @@
   .view[hidden]{display:none;}
 
   .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 20px;background:var(--bg-panel);border-bottom:1px solid var(--line);}
-  .brand{display:flex;align-items:center;gap:8px;}
+  .brand{display:flex;align-items:center;gap:9px;}
+  .brand-word{font-family:var(--font-ui);font-weight:700;font-size:16px;color:var(--text);display:block;letter-spacing:-.01em;line-height:1.15;}
+  .brand-sub{font-family:var(--font-mono);font-size:9.5px;color:var(--text-faint);letter-spacing:.08em;text-transform:uppercase;display:block;margin-top:1px;}
   .brand-text{font-family:var(--font-mono);font-weight:600;letter-spacing:.12em;font-size:13px;}
   .btn{background:var(--bg-panel-3);border:1px solid var(--line);color:var(--text);padding:7px 12px;border-radius:4px;font-size:12.5px;font-weight:500;}
-  .btn:hover{border-color:var(--line-bright);background:#22314A;}
+  .btn:hover{border-color:var(--line-bright);background:var(--bg-panel-3);}
   .btn-ghost{background:transparent;}
   .btn-accent{border-color:var(--cyan);color:var(--cyan);}
   .btn-accent:hover{background:var(--cyan-dim);}
@@ -161,7 +163,13 @@
 <!-- ================= LIBRARY VIEW ================= -->
 <div id="view-library" class="view">
   <header class="topbar">
-    <div class="brand"><span class="brand-text">BOM APP</span></div>
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="2" width="14" height="14" rx="3" style="fill:var(--cyan)" opacity="0.9"/>
+        <rect x="8" y="8" width="14" height="14" rx="3" style="fill:var(--amber)" opacity="0.9"/>
+      </svg>
+      <div><span class="brand-word">Flipon</span><span class="brand-sub">BOM App</span></div>
+    </div>
     <div class="spacer"></div>
     <span id="folder-status" class="hint" style="color:var(--text-faint);"></span>
     <button class="btn" id="btn-pick-folder">Choose BOM Folder</button>
@@ -172,6 +180,12 @@
 <!-- ================= EDITOR VIEW ================= -->
 <div id="view-editor" class="view" hidden>
   <header class="topbar">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="2" width="14" height="14" rx="3" style="fill:var(--cyan)" opacity="0.9"/>
+        <rect x="8" y="8" width="14" height="14" rx="3" style="fill:var(--amber)" opacity="0.9"/>
+      </svg>
+    </div>
     <button class="btn btn-sm btn-ghost" id="btn-back">&larr; Library</button>
     <span id="editor-title" class="brand-text" style="font-size:14px;"></span>
     <div class="spacer"></div>
@@ -246,13 +260,13 @@
      CONSTANTS
   ========================================================= */
   const TYPE_META = {
-    "Sub-Assembly":  { code:"SA", color:"#5FCBEB" },
-    "Semi-Finished": { code:"SF", color:"#F2A541" },
-    "Raw Material":  { code:"RM", color:"#7C93A8" },
-    "Packaging":     { code:"PK", color:"#B98CE0" },
-    "Accessory":     { code:"AC", color:"#F0789A" },
-    "Component":     { code:"CO", color:"#6FCF97" },
-    "Consumable":    { code:"CN", color:"#3FB8A8" },
+    "Sub-Assembly":  { code:"SA", color:"#0D7DA3" },
+    "Semi-Finished": { code:"SF", color:"#C17A1E" },
+    "Raw Material":  { code:"RM", color:"#64748B" },
+    "Packaging":     { code:"PK", color:"#8552C7" },
+    "Accessory":     { code:"AC", color:"#D1477A" },
+    "Component":     { code:"CO", color:"#2E9151" },
+    "Consumable":    { code:"CN", color:"#1B8F80" },
   };
   const TYPE_NAMES = Object.keys(TYPE_META);
   const COLS = ["Level","Item Number","Parent Item Number","Item Description","Item Type","Qty",
