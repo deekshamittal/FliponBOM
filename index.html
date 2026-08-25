@@ -199,6 +199,8 @@
       <div><span class="brand-word">Flipon</span><span class="brand-sub">BOM App</span></div>
     </div>
     <div class="spacer"></div>
+    <span id="vendor-status" class="hint" style="color:var(--text-faint);"></span>
+    <button class="btn btn-ghost" id="btn-pick-vendors">Choose Vendor List</button>
     <span id="folder-status" class="hint" style="color:var(--text-faint);"></span>
     <button class="btn" id="btn-pick-folder">Choose BOM Folder</button>
   </header>
@@ -300,7 +302,7 @@
   };
   const TYPE_NAMES = Object.keys(TYPE_META);
   const COLS = ["Level","Item Number","Parent Item Number","Item Description","Item Type","Qty",
-    "UOM","Image","Material Spec","Make/Buy","Vendor","Vendor Part # / Tool #","Process Steps",
+    "UOM","Image","Material Spec","Make/Buy","Vendor","Vendor ID","Vendor Part # / Tool #","Process Steps",
     "Unit Cost","Extended Cost","Lead Time (Days)","Comments"];
 
   let idCounter = 1;
@@ -324,7 +326,7 @@
   function makeNode(overrides){
     return Object.assign({
       id:newId(), itemNumber:"", description:"New item", itemType:"Component",
-      qty:1, uom:"Each", image:null, spec:"", makeBuy:"Buy", vendor:"", vendorPN:"",
+      qty:1, uom:"Each", image:null, spec:"", makeBuy:"Buy", vendor:"", vendorId:"", vendorPN:"",
       processSteps:"", unitCost:0, leadTime:null, comments:"", children:[], expanded:true,
     }, overrides || {});
   }
@@ -422,6 +424,67 @@
     }catch(e){ /* handle may be stale (folder moved/deleted) -- fall through */ }
     return false;
   }
+
+  let vendorFileHandle = null;
+  let vendorList = []; // [{id, name}, ...]
+
+  async function fsPickVendorFile(){
+    if(!window.showOpenFilePicker){
+      showToast("This browser doesn't support the File System Access API. Use Chrome or Edge.", "error");
+      return false;
+    }
+    try{
+      const [handle] = await window.showOpenFilePicker({
+        types:[{ description:"Excel files", accept:{ "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":[".xlsx"] } }],
+      });
+      vendorFileHandle = handle;
+      await idbSet("vendorFile", handle);
+      return true;
+    }catch(e){
+      if(e.name !== "AbortError") showToast("Couldn't open vendor file: " + e.message, "error");
+      return false;
+    }
+  }
+  async function fsTryRestoreVendorFile(){
+    const saved = await idbGet("vendorFile");
+    if(!saved) return false;
+    try{
+      const perm = await saved.queryPermission({ mode:"read" });
+      if(perm === "granted"){ vendorFileHandle = saved; return true; }
+      const req = await saved.requestPermission({ mode:"read" });
+      if(req === "granted"){ vendorFileHandle = saved; return true; }
+    }catch(e){ /* handle may be stale -- fall through */ }
+    return false;
+  }
+  async function loadVendorList(){
+    if(!vendorFileHandle) return;
+    try{
+      const buf = await fsReadFile(vendorFileHandle);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buf);
+      const ws = wb.worksheets[0];
+      const list = [];
+      let r = 2; // row 1 = headers: Vendor ID | Vendor Name
+      while(true){
+        const id = ws.getCell(r,1).value;
+        const name = ws.getCell(r,2).value;
+        if((id===null||id===undefined||id==="") && (name===null||name===undefined||name==="")) break;
+        if(id!==null && id!==undefined && id!=="") list.push({ id:String(id), name:String(name||"") });
+        r++;
+        if(r > 5000) break; // sane upper bound
+      }
+      vendorList = list;
+      updateVendorStatus();
+      showToast("Loaded " + vendorList.length + " vendor(s)", "success");
+    }catch(e){
+      console.error("Flipon BOM: vendor list load failed:", e);
+      showToast("Couldn't read vendor list: " + e.message, "error");
+    }
+  }
+  function updateVendorStatus(){
+    const el = document.getElementById("vendor-status");
+    if(el) el.textContent = vendorList.length ? vendorList.length + " vendors loaded" : "";
+  }
   async function fsListBOMFiles(){
     const files = [];
     for await (const [name, handle] of dirHandle.entries()){
@@ -494,7 +557,7 @@
     const ws = wb.addWorksheet("BOM");
     const navy = "FF1F4E78";
     ws.getColumn(1).width = 7;
-    const widths = [7,14,16,24,13,8,10,10,22,10,16,18,24,11,13,12,26];
+    const widths = [7,14,16,24,13,8,10,10,22,10,16,12,18,24,11,13,12,26];
     widths.forEach((w,i)=> ws.getColumn(i+1).width = w);
     const imageErrors = [];
 
@@ -534,7 +597,7 @@
     function writeNode(n, level, parentNum){
       const row = r++;
       const vals = [level, n.itemNumber, parentNum||"", n.description, n.itemType, n.qty, n.uom,
-        "", n.spec, n.makeBuy, n.vendor, n.vendorPN, n.processSteps,
+        "", n.spec, n.makeBuy, n.vendor, n.vendorId||"", n.vendorPN, n.processSteps,
         Number(unitCost(n).toFixed(2)), Number(extCost(n).toFixed(2)), n.leadTime==null?"":n.leadTime, n.comments];
       vals.forEach((v,i)=>{ ws.getCell(row, i+1).value = v; });
       ws.getRow(row).height = 20;
@@ -606,10 +669,11 @@
         itemType:String(row.getCell(5).value||"Component"), qty:Number(row.getCell(6).value)||0,
         uom:String(row.getCell(7).value||""), spec:String(row.getCell(9).value||""),
         makeBuy:String(row.getCell(10).value||"Buy"), vendor:String(row.getCell(11).value||""),
-        vendorPN:String(row.getCell(12).value||""), processSteps:String(row.getCell(13).value||""),
-        unitCost:Number(row.getCell(14).value)||0,
-        leadTime: row.getCell(16).value===""||row.getCell(16).value==null ? null : Number(row.getCell(16).value),
-        comments:String(row.getCell(17).value||""),
+        vendorId:String(row.getCell(12).value||""),
+        vendorPN:String(row.getCell(13).value||""), processSteps:String(row.getCell(14).value||""),
+        unitCost:Number(row.getCell(15).value)||0,
+        leadTime: row.getCell(17).value===""||row.getCell(17).value==null ? null : Number(row.getCell(17).value),
+        comments:String(row.getCell(18).value||""),
       });
       rIdx++;
     }
@@ -619,7 +683,7 @@
       const n = makeNode({
         itemNumber: rw.itemNumber, description: rw.description, itemType: rw.itemType,
         qty: rw.qty, uom: rw.uom, spec: rw.spec, makeBuy: rw.makeBuy, vendor: rw.vendor,
-        vendorPN: rw.vendorPN, processSteps: rw.processSteps, unitCost: rw.unitCost,
+        vendorId: rw.vendorId, vendorPN: rw.vendorPN, processSteps: rw.processSteps, unitCost: rw.unitCost,
         leadTime: rw.leadTime, comments: rw.comments,
         image: imagesByRow[rw.rowIdx-1] || null, children: [],
       });
@@ -725,6 +789,9 @@
 
   document.getElementById("btn-pick-folder").addEventListener("click", async () => {
     if(await fsPickFolder()) renderLibrary();
+  });
+  document.getElementById("btn-pick-vendors").addEventListener("click", async () => {
+    if(await fsPickVendorFile()) await loadVendorList();
   });
 
   /* =========================================================
@@ -1032,7 +1099,12 @@
     html += '</div>';
 
     html += '<div class="detail-grid">';
-    html += `<label>Vendor Name<input class="input" data-field="vendor" value="${esc(n.vendor)}"></label>`;
+    html += vendorList.length
+      ? `<label>Vendor Name<select class="input" data-vendor-select>
+           <option value="">\u2014 select vendor \u2014</option>
+           ${vendorList.map(v => `<option value="${esc(v.id)}"${v.id===n.vendorId?" selected":""}>${esc(v.name)}</option>`).join("")}
+         </select>${n.vendorId ? `<span class="hint">Vendor ID: ${esc(n.vendorId)}</span>` : ""}</label>`
+      : `<label>Vendor Name<input class="input" data-field="vendor" value="${esc(n.vendor)}"></label>`;
     html += `<label>Vendor Part # / Tool #<input class="input input-mono" data-field="vendorPN" value="${esc(n.vendorPN)}"></label>`;
     html += `<label>Lead Time (Days)<input class="input" type="number" min="0" step="1" data-field="leadTime" value="${n.leadTime==null?'':n.leadTime}"></label>`;
     html += `<label class="span-2">Process Steps<textarea class="input" data-field="processSteps" rows="2">${esc(n.processSteps)}</textarea></label>`;
@@ -1061,6 +1133,16 @@
         markDirty();
       });
     });
+    const vendorSelect = detailEl.querySelector("[data-vendor-select]");
+    if(vendorSelect){
+      vendorSelect.addEventListener("change", ()=>{
+        const chosen = vendorList.find(v => v.id === vendorSelect.value);
+        n.vendorId = chosen ? chosen.id : "";
+        n.vendor = chosen ? chosen.name : "";
+        renderDetail();
+        markDirty();
+      });
+    }
     detailEl.querySelectorAll(".seg-btn").forEach(btn=>{
       btn.addEventListener("click", ()=>{
         btn.parentElement.querySelectorAll(".seg-btn").forEach(b=>b.classList.toggle("active", b===btn));
@@ -1112,11 +1194,9 @@
      INIT
   ========================================================= */
   (async function init(){
-    if(await fsTryRestoreFolder()){
-      await renderLibrary();
-    } else {
-      await renderLibrary();
-    }
+    await fsTryRestoreFolder();
+    if(await fsTryRestoreVendorFile()) await loadVendorList();
+    await renderLibrary();
   })();
 
 })();
