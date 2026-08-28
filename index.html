@@ -176,6 +176,13 @@
   .toast.show{opacity:1;transform:translateY(0);}
   .toast-success{border-color:var(--green);} .toast-error{border-color:var(--red);}
 
+  .thumb-clickable{cursor:zoom-in;}
+  .lightbox{position:fixed;inset:0;background:rgba(13,20,31,.9);display:none;align-items:center;justify-content:center;z-index:200;padding:40px;}
+  .lightbox.open{display:flex;}
+  .lightbox img{max-width:90vw;max-height:90vh;border-radius:6px;box-shadow:0 8px 40px rgba(0,0,0,.5);}
+  .lightbox-close{position:absolute;top:18px;right:22px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .lightbox-close:hover{background:rgba(255,255,255,.22);}
+
   @media (max-width: 860px){
     .main{grid-template-columns:1fr;grid-template-rows:45vh 1fr;}
     .tree-panel{border-right:none;border-bottom:1px solid var(--line);}
@@ -233,8 +240,12 @@
       <div class="field-grid">
         <label>Date<input class="input" type="date" data-hfield="date"></label>
         <label>Finished Product Part Number<input class="input input-mono" data-hfield="partNumber"></label>
+        <label>Internal Project Name<input class="input" data-hfield="internalProjectName" placeholder="What the factory floor calls it"></label>
         <label>Created By<input class="input" data-hfield="createdBy"></label>
         <label>Approved By<input class="input" data-hfield="approvedBy"></label>
+        <label class="span-2" style="grid-column:1/-1;">Product Description
+          <textarea class="input" data-hfield="productDescription" rows="2" placeholder="What this product is, at a glance"></textarea>
+        </label>
         <label class="span-2" style="grid-column:1/-1;">Finished Product Image
           <div class="image-field">
             <div class="image-thumb" id="product-image-thumb"><span class="placeholder">no image</span></div>
@@ -275,6 +286,11 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
+  <img id="lightbox-img" src="" alt="Full size preview">
+</div>
 <datalist id="uom-options">
   <option value="Each"><option value="Set"><option value="Pair"><option value="Roll">
   <option value="Sheet"><option value="Box"><option value="Pack">
@@ -301,7 +317,7 @@
     "Consumable":    { code:"CN", color:"#1B8F80" },
   };
   const TYPE_NAMES = Object.keys(TYPE_META);
-  const COLS = ["Level","Item Number","Parent Item Number","Item Description","Item Type","Qty",
+  const COLS = ["Level","Item Number","Parent Item Number","Item Description","Indented Description","Description","Item Type","Qty",
     "UOM","Image","Material Spec","Make/Buy","Vendor","Vendor ID","Vendor Part # / Tool #","Process Steps",
     "Unit Cost","Extended Cost","Lead Time (Days)","Comments"];
 
@@ -320,19 +336,45 @@
     toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
   }
 
+  /* ---------- image lightbox (click any thumbnail to view full size) ---------- */
+  const lightboxEl = document.getElementById("lightbox");
+  const lightboxImgEl = document.getElementById("lightbox-img");
+  function openLightbox(src){
+    if(!src) return;
+    lightboxImgEl.src = src;
+    lightboxEl.classList.add("open");
+  }
+  function closeLightbox(){
+    lightboxEl.classList.remove("open");
+    lightboxImgEl.src = "";
+  }
+  document.getElementById("lightbox-close").addEventListener("click", closeLightbox);
+  lightboxEl.addEventListener("click", (e)=>{ if(e.target === lightboxEl) closeLightbox(); });
+  document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") closeLightbox(); });
+
+  function setThumb(el, src){
+    if(src){
+      el.innerHTML = `<img src="${src}" class="thumb-clickable">`;
+      el.querySelector("img").addEventListener("click", ()=> openLightbox(src));
+    } else {
+      el.innerHTML = '<span class="placeholder">no image</span>';
+    }
+  }
+
   /* =========================================================
      DATA MODEL
   ========================================================= */
   function makeNode(overrides){
     return Object.assign({
-      id:newId(), itemNumber:"", description:"New item", itemType:"Component",
+      id:newId(), itemNumber:"", description:"New item", partDescription:"", itemType:"Component",
       qty:1, uom:"Each", image:null, spec:"", makeBuy:"Buy", vendor:"", vendorId:"", vendorPN:"",
       processSteps:"", unitCost:0, leadTime:null, comments:"", children:[], expanded:true,
     }, overrides || {});
   }
   function makeBOM(partNumber){
     return {
-      header:{ date:new Date().toISOString().slice(0,10), partNumber:partNumber||"", productImage:null, createdBy:"", approvedBy:"" },
+      header:{ date:new Date().toISOString().slice(0,10), partNumber:partNumber||"", internalProjectName:"",
+        productDescription:"", productImage:null, createdBy:"", approvedBy:"" },
       notes:"",
       tree:[],
     };
@@ -557,11 +599,12 @@
     const ws = wb.addWorksheet("BOM");
     const navy = "FF1F4E78";
     ws.getColumn(1).width = 7;
-    const widths = [7,14,16,24,13,8,10,10,22,10,16,12,18,24,11,13,12,26];
+    const widths = [7,14,16,24,30,30,13,8,10,10,22,10,16,12,18,24,11,13,12,26];
     widths.forEach((w,i)=> ws.getColumn(i+1).width = w);
+    const LAST_COL = COLS.length; // 20
     const imageErrors = [];
 
-    ws.mergeCells(1,1,1,17);
+    ws.mergeCells(1,1,1,LAST_COL);
     const titleCell = ws.getCell(1,1);
     titleCell.value = "Bill of Materials \u2014 " + (bom.header.partNumber || "(no part number)");
     titleCell.font = { name:"Arial", size:16, bold:true, color:{argb:navy} };
@@ -571,19 +614,27 @@
     ws.getCell(3,4).value = "Created By"; ws.getCell(3,5).value = bom.header.createdBy || "";
     ws.getCell(3,7).value = "Approved By"; ws.getCell(3,8).value = bom.header.approvedBy || "";
     ws.getCell(4,1).value = "Finished Product Part #"; ws.getCell(4,2).value = bom.header.partNumber || "";
+    ws.getCell(4,4).value = "Internal Project Name"; ws.getCell(4,5).value = bom.header.internalProjectName || "";
     [3,4].forEach(r=>{ for(let c=1;c<=8;c+=3){ ws.getCell(r,c).font = {name:"Arial",size:9.5,bold:true,color:{argb:"FF7C93A8"}}; } });
 
-    ws.getCell(6,1).value = "Finished Product Image";
+    ws.getCell(6,1).value = "Product Description";
     ws.getCell(6,1).font = {name:"Arial",size:9.5,bold:true,color:{argb:"FF7C93A8"}};
+    ws.mergeCells(7,1,9,LAST_COL);
+    const prodDescCell = ws.getCell(7,1);
+    prodDescCell.value = bom.header.productDescription || "";
+    prodDescCell.alignment = {wrapText:true, vertical:"top", horizontal:"left"};
+
+    ws.getCell(11,1).value = "Finished Product Image";
+    ws.getCell(11,1).font = {name:"Arial",size:9.5,bold:true,color:{argb:"FF7C93A8"}};
     if(bom.header.productImage){
       try{
         const {base64, extension} = dataURLtoBase64(bom.header.productImage);
         const imgId = wb.addImage({ base64, extension });
-        ws.addImage(imgId, { tl:{col:1, row:5}, ext:{width:110, height:110} });
+        ws.addImage(imgId, { tl:{col:1, row:11}, ext:{width:110, height:110} });
       }catch(e){ console.error("Flipon BOM: header image embed failed:", e); imageErrors.push("product image: " + e.message); }
     }
 
-    const HEADER_ROW = 13;
+    const HEADER_ROW = 22;
     COLS.forEach((h,i)=>{
       const cell = ws.getCell(HEADER_ROW, i+1);
       cell.value = h;
@@ -596,8 +647,9 @@
     let r = HEADER_ROW + 1;
     function writeNode(n, level, parentNum){
       const row = r++;
-      const vals = [level, n.itemNumber, parentNum||"", n.description, n.itemType, n.qty, n.uom,
-        "", n.spec, n.makeBuy, n.vendor, n.vendorId||"", n.vendorPN, n.processSteps,
+      const indented = "   ".repeat(Math.max(level-1, 0)) + (n.description || "");
+      const vals = [level, n.itemNumber, parentNum||"", n.description, indented, n.partDescription||"",
+        n.itemType, n.qty, n.uom, "", n.spec, n.makeBuy, n.vendor, n.vendorId||"", n.vendorPN, n.processSteps,
         Number(unitCost(n).toFixed(2)), Number(extCost(n).toFixed(2)), n.leadTime==null?"":n.leadTime, n.comments];
       vals.forEach((v,i)=>{ ws.getCell(row, i+1).value = v; });
       ws.getRow(row).height = 20;
@@ -605,7 +657,7 @@
         try{
           const {base64, extension} = dataURLtoBase64(n.image);
           const imgId = wb.addImage({ base64, extension });
-          ws.addImage(imgId, { tl:{col:7, row:row-1}, ext:{width:18, height:18} });
+          ws.addImage(imgId, { tl:{col:9, row:row-1}, ext:{width:18, height:18} });
         }catch(e){ console.error("Flipon BOM: item image embed failed for", n.itemNumber||n.description, e); imageErrors.push((n.itemNumber||n.description||"item") + ": " + e.message); }
       }
       (n.children||[]).forEach(c => writeNode(c, level+1, n.itemNumber));
@@ -616,7 +668,7 @@
     const notesRow = r + 1;
     ws.getCell(notesRow, 1).value = "Product Notes / Specs / Founder Notes";
     ws.getCell(notesRow, 1).font = {name:"Arial", size:11, bold:true, color:{argb:navy}};
-    ws.mergeCells(notesRow+1, 1, notesRow+4, 17);
+    ws.mergeCells(notesRow+1, 1, notesRow+4, LAST_COL);
     const notesCell = ws.getCell(notesRow+1, 1);
     notesCell.value = bom.notes || "";
     notesCell.alignment = {wrapText:true, vertical:"top", horizontal:"left"};
@@ -634,6 +686,8 @@
     bom.header.createdBy = String(ws.getCell(3,5).value || "");
     bom.header.approvedBy = String(ws.getCell(3,8).value || "");
     bom.header.partNumber = String(ws.getCell(4,2).value || "");
+    bom.header.internalProjectName = String(ws.getCell(4,5).value || "");
+    bom.header.productDescription = String(ws.getCell(7,1).value || "");
 
     // recover images: match each embedded image to the row it's anchored on
     const imagesByRow = {};
@@ -654,9 +708,9 @@
     }catch(e){ console.error("Flipon BOM: image recovery threw:", e); imageRecoveryNote = "Image recovery failed: " + e.message; }
     if(imageRecoveryNote) showToast(imageRecoveryNote, "error");
 
-    if(imagesByRow[5] !== undefined) bom.header.productImage = imagesByRow[5];
+    if(imagesByRow[11] !== undefined) bom.header.productImage = imagesByRow[11];
 
-    const HEADER_ROW = 13;
+    const HEADER_ROW = 22;
     const rows = [];
     let rIdx = HEADER_ROW + 1;
     while(true){
@@ -666,14 +720,15 @@
       rows.push({
         rowIdx:rIdx, level:Number(level), itemNumber:String(row.getCell(2).value||""),
         parentItemNumber:String(row.getCell(3).value||""), description:String(row.getCell(4).value||""),
-        itemType:String(row.getCell(5).value||"Component"), qty:Number(row.getCell(6).value)||0,
-        uom:String(row.getCell(7).value||""), spec:String(row.getCell(9).value||""),
-        makeBuy:String(row.getCell(10).value||"Buy"), vendor:String(row.getCell(11).value||""),
-        vendorId:String(row.getCell(12).value||""),
-        vendorPN:String(row.getCell(13).value||""), processSteps:String(row.getCell(14).value||""),
-        unitCost:Number(row.getCell(15).value)||0,
-        leadTime: row.getCell(17).value===""||row.getCell(17).value==null ? null : Number(row.getCell(17).value),
-        comments:String(row.getCell(18).value||""),
+        partDescription:String(row.getCell(6).value||""),
+        itemType:String(row.getCell(7).value||"Component"), qty:Number(row.getCell(8).value)||0,
+        uom:String(row.getCell(9).value||""), spec:String(row.getCell(11).value||""),
+        makeBuy:String(row.getCell(12).value||"Buy"), vendor:String(row.getCell(13).value||""),
+        vendorId:String(row.getCell(14).value||""),
+        vendorPN:String(row.getCell(15).value||""), processSteps:String(row.getCell(16).value||""),
+        unitCost:Number(row.getCell(17).value)||0,
+        leadTime: row.getCell(19).value===""||row.getCell(19).value==null ? null : Number(row.getCell(19).value),
+        comments:String(row.getCell(20).value||""),
       });
       rIdx++;
     }
@@ -681,7 +736,7 @@
     const byItemNumber = {};
     const nodes = rows.map(rw=>{
       const n = makeNode({
-        itemNumber: rw.itemNumber, description: rw.description, itemType: rw.itemType,
+        itemNumber: rw.itemNumber, description: rw.description, partDescription: rw.partDescription, itemType: rw.itemType,
         qty: rw.qty, uom: rw.uom, spec: rw.spec, makeBuy: rw.makeBuy, vendor: rw.vendor,
         vendorId: rw.vendorId, vendorPN: rw.vendorPN, processSteps: rw.processSteps, unitCost: rw.unitCost,
         leadTime: rw.leadTime, comments: rw.comments,
@@ -727,11 +782,12 @@
     const files = await fsListBOMFiles();
     const cards = [];
     for(const f of files){
-      let summary = { partNumber:f.name.replace(/\.xlsx$/i,""), date:"", thumb:null };
+      let summary = { partNumber:f.name.replace(/\.xlsx$/i,""), projectName:"", date:"", thumb:null };
       try{
         const buf = await fsReadFile(f.handle);
         const bom = await workbookToBOM(buf);
         summary.partNumber = bom.header.partNumber || summary.partNumber;
+        summary.projectName = bom.header.internalProjectName || "";
         summary.date = bom.header.date || "";
         summary.thumb = bom.header.productImage;
         summary.itemCount = countAll(bom.tree);
@@ -744,7 +800,7 @@
       html += `<div class="bom-card" data-idx="${i}">
         <div class="bom-card-thumb">${c.summary.thumb ? `<img src="${c.summary.thumb}">` : '<span class="placeholder">no image</span>'}</div>
         <div class="bom-card-title">${esc(c.summary.partNumber)}</div>
-        <div class="bom-card-sub">${esc(c.summary.date)}${c.summary.itemCount!=null?' &middot; '+c.summary.itemCount+' items':''}</div>
+        <div class="bom-card-sub">${c.summary.projectName ? esc(c.summary.projectName) + ' &middot; ' : ''}${esc(c.summary.date)}${c.summary.itemCount!=null?' &middot; '+c.summary.itemCount+' items':''}</div>
       </div>`;
     });
     html += '</div>';
@@ -855,15 +911,13 @@
     });
     updateProductInfoSummary();
     const thumb = document.getElementById("product-image-thumb");
-    thumb.innerHTML = currentBOM.header.productImage
-      ? `<img src="${currentBOM.header.productImage}">`
-      : '<span class="placeholder">no image</span>';
+    setThumb(thumb, currentBOM.header.productImage);
     document.getElementById("notes-textarea").value = currentBOM.notes || "";
   }
   function updateProductInfoSummary(){
     const h = currentBOM.header;
     document.getElementById("product-info-summary").textContent =
-      [h.partNumber, h.date, h.createdBy && ("by " + h.createdBy)].filter(Boolean).join(" \u00b7 ");
+      [h.partNumber, h.internalProjectName, h.date, h.createdBy && ("by " + h.createdBy)].filter(Boolean).join(" \u00b7 ");
   }
   document.querySelectorAll("[data-hfield]").forEach(el=>{
     el.addEventListener("input", ()=>{
@@ -879,7 +933,7 @@
     const raw = await fileToDataURL(file);
     const small = await downscaleDataURL(raw, 400);
     currentBOM.header.productImage = small;
-    document.getElementById("product-image-thumb").innerHTML = `<img src="${small}">`;
+    setThumb(document.getElementById("product-image-thumb"), small);
     markDirty();
   });
   document.getElementById("notes-textarea").addEventListener("input", (e)=>{
@@ -903,7 +957,7 @@
     const chevron = hasChildren
       ? `<button class="chevron" data-id="${n.id}" tabindex="-1">${n.expanded?"\u25be":"\u25b8"}</button>`
       : '<span class="chevron chevron--empty"></span>';
-    const thumb = n.image ? `<img class="row-thumb" src="${n.image}">` : '';
+    const thumb = n.image ? `<img class="row-thumb thumb-clickable" src="${n.image}">` : '';
     let html = '<li class="tree-li"><div class="tree-row-wrap">';
     html += `<div class="tree-row${selected?' selected':''}" data-id="${n.id}" tabindex="0">`;
     html += chevron;
@@ -922,6 +976,8 @@
     return html;
   }
   treeRootEl.addEventListener("click", (e)=>{
+    const rowThumb = e.target.closest(".row-thumb");
+    if(rowThumb){ openLightbox(rowThumb.src); return; }
     const chev = e.target.closest(".chevron");
     if(chev && !chev.classList.contains("chevron--empty")){
       const loc = locate(chev.dataset.id);
@@ -1074,6 +1130,7 @@
     html += '</div>';
 
     html += '<div class="detail-grid">';
+    html += `<label class="span-2">Description<textarea class="input" data-field="partDescription" rows="2" placeholder="What this part is or does">${esc(n.partDescription)}</textarea></label>`;
     html += `<label>Item type<select class="input" data-field="itemType">${typeOptionsHTML(n.itemType)}</select></label>`;
     html += `<label>Make / Buy<div class="segmented">
       <button type="button" class="seg-btn ${n.makeBuy!=='Buy'?'active':''}" data-value="Make">Make</button>
@@ -1083,7 +1140,7 @@
     html += `<label>UOM<input class="input" list="uom-options" data-field="uom" value="${esc(n.uom)}"></label>`;
     html += `<label class="span-2">Material Specification<input class="input" data-field="spec" value="${esc(n.spec)}"></label>`;
     html += `<label class="span-2">Item Image
-      <div class="image-field"><div class="image-thumb" id="node-image-thumb">${n.image?`<img src="${n.image}">`:'<span class="placeholder">no image</span>'}</div>
+      <div class="image-field"><div class="image-thumb" id="node-image-thumb">${n.image?`<img src="${n.image}" class="thumb-clickable" id="node-image-current">`:'<span class="placeholder">no image</span>'}</div>
       <input type="file" accept="image/*" id="node-image-input"></div></label>`;
     html += '</div>';
 
@@ -1166,10 +1223,12 @@
         const raw = await fileToDataURL(file);
         const small = await downscaleDataURL(raw, 300);
         n.image = small;
-        document.getElementById("node-image-thumb").innerHTML = `<img src="${small}">`;
+        setThumb(document.getElementById("node-image-thumb"), small);
         renderTree(); markDirty();
       });
     }
+    const currentThumbImg = document.getElementById("node-image-current");
+    if(currentThumbImg) currentThumbImg.addEventListener("click", ()=> openLightbox(n.image));
   }
 
   /* ---- save ---- */
