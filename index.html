@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Flipon &mdash; BOM App</title>
+<title>Flipon &mdash; Product Workspace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg-base:#F7F9FC; --bg-panel:#FFFFFF; --bg-panel-2:#F1F4F8; --bg-panel-3:#E8EDF3;
@@ -15,7 +17,7 @@
     --amber:#B36A00; --amber-dim:#FBEEDC;
     --green:#278C4A; --green-dim:#E3F5E9;
     --red:#C0392B; --red-dim:#FBEAE8;
-    --violet:#7C4FC2; --rose:#CC4A75; --teal:#1A9483; --slate:#64748B;
+    --violet:#7C4FC2; --rose:#CC4A75; --teal:#1A9483; --teal-dim:#E1F3F0; --slate:#64748B;
     --text:#16212E; --text-muted:#5A6B7E; --text-faint:#94A3B3;
     --font-ui:'IBM Plex Sans',system-ui,sans-serif; --font-mono:'IBM Plex Mono',monospace;
   }
@@ -191,6 +193,193 @@
     .main.tree-collapsed .tree-toggle-btn{transform:rotate(-90deg);}
     .resize-handle{display:none;}
   }
+
+  /* =========================================================
+     PRODUCT LIBRARY CARDS (extends .bom-card for folder listing)
+  ========================================================= */
+  .bom-card-badges{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap;}
+  .badge-mini{font-family:var(--font-mono);font-size:9.5px;padding:2px 6px;border-radius:3px;border:1px solid;letter-spacing:.02em;}
+  .badge-mini.on{color:var(--green);border-color:var(--green);background:var(--green-dim);}
+  .badge-mini.off{color:var(--text-faint);border-color:var(--line);background:var(--bg-panel-2);}
+
+  /* =========================================================
+     WORKSPACE TAB BAR
+  ========================================================= */
+  .tabbar{display:flex;gap:2px;padding:0 20px;background:var(--bg-panel);border-bottom:1px solid var(--line);flex-shrink:0;}
+  .tab-btn{padding:11px 16px;border:none;background:transparent;color:var(--text-muted);font-size:13px;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;}
+  .tab-btn:hover{color:var(--text);}
+  .tab-btn.active{color:var(--cyan);border-bottom-color:var(--cyan);}
+  #view-workspace .view{height:auto;}
+  .tab-panel{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
+  .tab-panel[hidden]{display:none;}
+
+  /* =========================================================
+     PRODUCTION PROCESS TAB (Process Traveler, namespaced)
+  ========================================================= */
+  #tab-process{position:relative;}
+  #proc-toolbar{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:9px 20px; background:var(--bg-panel); border-bottom:1px solid var(--line); flex-shrink:0;
+  }
+  #proc-toolbar .meta-field{display:flex;flex-direction:column;gap:1px;min-width:0;}
+  #proc-toolbar .meta-label{font-size:10px;color:var(--text-faint);}
+  #proc-toolbar .meta-value{font-size:12.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;}
+  #proc-issues-btn{
+    display:none; align-items:center; gap:6px; padding:6px 11px;
+    background:var(--red-dim); border:1px solid var(--red); border-radius:4px;
+    color:var(--red); font-size:12px; cursor:pointer;
+  }
+  #proc-issues-btn.show{ display:flex; }
+  .proc-zoom-readout{ font-size:11.5px; color:var(--text-faint); width:38px; text-align:center; }
+
+  #proc-main{ flex:1; display:flex; min-height:0; position:relative; }
+  #proc-canvas-wrap{
+    flex:1; overflow:auto; position:relative;
+    background:
+      linear-gradient(var(--line) 1px, transparent 1px) 0 0/32px 32px,
+      linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0/32px 32px,
+      var(--bg-base);
+  }
+  #proc-canvas{ position:relative; transform-origin: 0 0; }
+  svg#proc-edges{ position:absolute; top:0; left:0; pointer-events:none; overflow:visible; }
+
+  .pnode{
+    position:absolute; box-sizing:border-box;
+    width:auto; min-width:180px; max-width:270px;
+    border-radius:5px; border:1.5px solid var(--line); background:var(--bg-panel);
+    padding:9px 11px; cursor:pointer;
+    box-shadow:0 1px 2px rgba(22,33,46,.06);
+    transition:box-shadow .12s ease, border-color .12s ease, opacity .15s ease;
+  }
+  .pnode:hover{ border-color:var(--text-faint); box-shadow:0 2px 6px rgba(22,33,46,.1); }
+  .pnode.selected{ border-color:var(--text); box-shadow:0 0 0 2px rgba(22,33,46,.14); }
+  .pnode.dimmed{ opacity:.28; }
+  .pnode.exec-inhouse{ border-left:4px solid var(--green); }
+  .pnode.exec-outsourced{ border-left:4px solid var(--amber); }
+  .pnode.exec-qc{ border-left:4px solid var(--violet); }
+  .pnode.exec-unspecified{ border-left:4px solid var(--text-faint); }
+  .pnode-id{ font-size:12px; font-weight:700; letter-spacing:.2px; color:var(--text); font-family:var(--font-mono); }
+  .pnode-name{ font-size:12px; color:var(--text-muted); margin-top:3px; line-height:1.35; font-weight:500; white-space:normal; word-break:break-word; }
+  .pnode-vendor{ font-size:11px; color:var(--text-muted); margin-top:6px; display:flex; align-items:flex-start; gap:5px; font-weight:500; white-space:normal; word-break:break-word; }
+  .pexec-dot{ width:6px; height:6px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+  .exec-inhouse .pexec-dot{ background:var(--green); }
+  .exec-outsourced .pexec-dot{ background:var(--amber); }
+  .exec-qc .pexec-dot{ background:var(--violet); }
+  .exec-unspecified .pexec-dot{ background:var(--text-faint); }
+
+  .pio-box{
+    position:absolute; box-sizing:border-box;
+    width:auto; min-width:170px; max-width:290px;
+    border-radius:4px; padding:6px 9px; font-size:11px; line-height:1.5;
+    cursor:default; transition:opacity .15s ease;
+  }
+  .pio-box.dimmed{ opacity:.22; }
+  .pio-box.input-box{ background:var(--bg-panel-2); border:1.5px dashed var(--slate); color:var(--text); }
+  .pio-box.output-box{ background:var(--teal-dim); border:1.5px solid var(--teal); color:var(--teal); }
+  .pio-title{ font-size:9.5px; color:var(--text-faint); margin-bottom:2px; font-weight:600; }
+  .output-box .pio-title{ color:var(--teal); }
+  .pio-line{ white-space:normal; word-break:break-word; font-weight:500; }
+  .pio-line i{ color:var(--text-faint); font-style:normal; font-weight:400; }
+  .output-box .pio-line i{ color:var(--teal); opacity:.8; }
+
+  .pstart-end{
+    position:absolute; display:flex; align-items:center; justify-content:center;
+    border-radius:14px; font-size:11px; color:var(--text-muted);
+    border:1px solid var(--line); background:var(--bg-panel-2);
+  }
+
+  #proc-empty-state{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:14px; text-align:center; padding:40px;
+  }
+  #proc-empty-state.hide{ display:none; }
+  .proc-empty-icon{ color:var(--text-faint); opacity:.6; }
+  .proc-empty-title{ font-size:16px; font-weight:500; color:var(--text); }
+  .proc-empty-sub{ font-size:13px; color:var(--text-muted); max-width:360px; line-height:1.6; }
+
+  #proc-drawer{
+    width:0; flex-shrink:0; overflow:hidden;
+    background:var(--bg-panel); border-left:1px solid var(--line);
+    transition:width .18s ease;
+  }
+  #proc-drawer.open{ width:360px; }
+  #proc-drawer-inner{ width:360px; height:100%; overflow-y:auto; padding:20px; }
+  .pdrawer-close{
+    float:right; cursor:pointer; color:var(--text-faint);
+    width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:4px;
+  }
+  .pdrawer-close:hover{ color:var(--text); background:var(--bg-panel-2); }
+  .pdrawer-id{ font-size:11px; color:var(--text-faint); margin-bottom:2px; font-family:var(--font-mono); }
+  .pdrawer-name{ font-size:17px; font-weight:600; line-height:1.3; margin-bottom:14px; padding-right:30px; }
+  .pdrawer-badges{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+  .pbadge{ display:flex; align-items:center; gap:6px; padding:4px 9px; border-radius:20px; font-size:11px; border:1px solid var(--line); }
+  .pbadge.exec-inhouse{ color:var(--green); border-color:var(--green); background:var(--green-dim); }
+  .pbadge.exec-outsourced{ color:var(--amber); border-color:var(--amber); background:var(--amber-dim); }
+  .pbadge.exec-qc{ color:var(--violet); border-color:var(--violet); background:rgba(124,79,194,.12); }
+  .pbadge.flow{ color:var(--text-muted); }
+  .pdrawer-section{ margin-bottom:18px; }
+  .pdrawer-section-title{ font-size:10.5px; color:var(--text-faint); margin-bottom:7px; }
+  .pdrawer-body-text{ font-size:12.5px; line-height:1.65; color:var(--text); white-space:pre-line; }
+  .pdrawer-body-text.muted{ color:var(--text-muted); }
+  .pio-table{ display:flex; flex-direction:column; gap:6px; }
+  .pio-row{ display:flex; justify-content:space-between; gap:10px; padding:7px 9px; background:var(--bg-panel-2); border-radius:4px; font-size:12px; }
+  .pio-row-item{ color:var(--text); }
+  .pio-row-type{ color:var(--text-faint); font-size:11px; flex-shrink:0; }
+  .poutput-card{ padding:10px 12px; background:var(--teal-dim); border:1px solid var(--teal); border-radius:4px; }
+  .poutput-card-code{ font-size:13px; font-weight:700; color:var(--teal); }
+  .poutput-card-name{ font-size:12px; color:var(--teal); opacity:.85; margin-top:2px; font-weight:500; }
+  .ppred-chip-row{ display:flex; flex-wrap:wrap; gap:6px; }
+  .ppred-chip{ padding:4px 8px; background:var(--bg-panel-2); border:1px solid var(--line); border-radius:4px; font-size:11.5px; cursor:pointer; color:var(--text-muted); font-family:var(--font-mono); }
+  .ppred-chip:hover{ color:var(--text); border-color:var(--text-faint); }
+
+  #proc-issues-overlay{
+    position:fixed; inset:0; background:rgba(13,20,31,.6); display:none;
+    align-items:center; justify-content:center; z-index:100;
+  }
+  #proc-issues-overlay.show{ display:flex; }
+  #proc-issues-modal{ width:520px; max-height:70vh; overflow-y:auto; background:var(--bg-panel); border:1px solid var(--line); border-radius:6px; padding:22px; }
+  #proc-issues-modal h3{ margin:0 0 4px; font-size:15px; font-weight:600; }
+  #proc-issues-modal .sub{ font-size:12px; color:var(--text-muted); margin-bottom:16px; }
+  .pissue-item{ display:flex; gap:10px; padding:10px 0; border-top:1px solid var(--line); font-size:12.5px; line-height:1.55; }
+  .pissue-item:first-of-type{ border-top:none; }
+  .pissue-dot{ width:6px; height:6px; border-radius:50%; background:var(--red); margin-top:6px; flex-shrink:0; }
+
+  #proc-legend{
+    position:absolute; left:16px; bottom:16px;
+    background:rgba(255,255,255,.97); border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; backdrop-filter:blur(4px); box-shadow:0 2px 10px rgba(22,33,46,.12);
+    z-index:15; user-select:none; min-width:200px;
+  }
+  #proc-legend.hide{ display:none; }
+  #proc-legend-header{
+    display:flex; align-items:center; justify-content:space-between; padding:8px 10px; cursor:grab;
+    border-bottom:1px solid var(--line); font-weight:600; color:var(--text);
+  }
+  #proc-legend.collapsed #proc-legend-header{ border-bottom:none; }
+  #proc-legend-header:active{ cursor:grabbing; }
+  #proc-legend-drag-handle{ display:flex; align-items:center; gap:6px; color:var(--text); }
+  #proc-legend-toggle{ width:18px; height:18px; display:flex; align-items:center; justify-content:center; border-radius:3px; color:var(--text-muted); cursor:pointer; font-size:14px; line-height:1; }
+  #proc-legend-toggle:hover{ background:var(--bg-panel-2); color:var(--text); }
+  #proc-legend-body{ display:flex; flex-direction:column; gap:7px; padding:10px 12px 11px; }
+  #proc-legend.collapsed #proc-legend-body{ display:none; }
+  .plegend-row{ display:flex; align-items:center; gap:8px; color:var(--text-muted); }
+  .plegend-swatch{ width:10px; height:10px; border-radius:2px; flex-shrink:0; }
+
+  .proc-file-missing{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; flex:1; padding:60px; text-align:center; }
+
+  /* =========================================================
+     MEDIA TAB
+  ========================================================= */
+  #tab-media{ flex:1; overflow-y:auto; padding:26px 30px; }
+  .media-toolbar{ display:flex; align-items:center; gap:14px; margin-bottom:20px; }
+  .media-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px; max-width:1300px; }
+  .media-tile{ background:var(--bg-panel); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .media-tile-media{ width:100%; height:150px; background:#0D1521; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .media-tile-media img{ width:100%; height:100%; object-fit:cover; cursor:zoom-in; }
+  .media-tile-media video{ width:100%; height:100%; object-fit:contain; background:#000; }
+  .media-tile-name{ padding:8px 10px; font-size:11.5px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .media-empty{ max-width:420px; margin:60px auto; text-align:center; color:var(--text-muted); }
+  .media-empty h2{ color:var(--text); font-size:18px; }
 </style>
 </head>
 <body>
@@ -203,19 +392,19 @@
         <rect x="2" y="2" width="14" height="14" rx="3" style="fill:var(--cyan)" opacity="0.9"/>
         <rect x="8" y="8" width="14" height="14" rx="3" style="fill:var(--amber)" opacity="0.9"/>
       </svg>
-      <div><span class="brand-word">Flipon</span><span class="brand-sub">BOM App</span></div>
+      <div><span class="brand-word">Flipon</span><span class="brand-sub">Product Workspace</span></div>
     </div>
     <div class="spacer"></div>
     <span id="vendor-status" class="hint" style="color:var(--text-faint);"></span>
     <button class="btn btn-ghost" id="btn-pick-vendors">Choose Vendor List</button>
     <span id="folder-status" class="hint" style="color:var(--text-faint);"></span>
-    <button class="btn" id="btn-pick-folder">Choose BOM Folder</button>
+    <button class="btn" id="btn-pick-folder">Choose Products Folder</button>
   </header>
   <div id="library-content"></div>
 </div>
 
-<!-- ================= EDITOR VIEW ================= -->
-<div id="view-editor" class="view" hidden>
+<!-- ================= WORKSPACE VIEW ================= -->
+<div id="view-workspace" class="view" hidden>
   <header class="topbar">
     <div class="brand">
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
@@ -223,66 +412,145 @@
         <rect x="8" y="8" width="14" height="14" rx="3" style="fill:var(--amber)" opacity="0.9"/>
       </svg>
     </div>
-    <button class="btn btn-sm btn-ghost" id="btn-back">&larr; Library</button>
-    <span id="editor-title" class="brand-text" style="font-size:14px;"></span>
+    <button class="btn btn-sm btn-ghost" id="btn-back">&larr; Products</button>
+    <span id="workspace-title" class="brand-text" style="font-size:14px;"></span>
     <div class="spacer"></div>
-    <span id="save-status" class="hint"></span>
-    <button class="btn btn-accent" id="btn-save">Save</button>
   </header>
 
-  <div class="panel">
-    <div class="panel-head" id="product-info-head">
-      <span class="chev">&#9656;</span>
-      <span class="panel-title">Product Info</span>
-      <span class="panel-summary" id="product-info-summary"></span>
-    </div>
-    <div class="panel-body" id="product-info-body">
-      <div class="field-grid">
-        <label>Date<input class="input" type="date" data-hfield="date"></label>
-        <label>Finished Product Part Number<input class="input input-mono" data-hfield="partNumber"></label>
-        <label>Internal Project Name<input class="input" data-hfield="internalProjectName" placeholder="What the factory floor calls it"></label>
-        <label>Created By<input class="input" data-hfield="createdBy"></label>
-        <label>Approved By<input class="input" data-hfield="approvedBy"></label>
-        <label class="span-2" style="grid-column:1/-1;">Product Description
-          <textarea class="input" data-hfield="productDescription" rows="2" placeholder="What this product is, at a glance"></textarea>
-        </label>
-        <label class="span-2" style="grid-column:1/-1;">Finished Product Image
-          <div class="image-field">
-            <div class="image-thumb" id="product-image-thumb"><span class="placeholder">no image</span></div>
-            <input type="file" accept="image/*" id="product-image-input">
-          </div>
-        </label>
-      </div>
-    </div>
-  </div>
+  <nav class="tabbar">
+    <button class="tab-btn active" data-tab="bom">Bill of Materials</button>
+    <button class="tab-btn" data-tab="process">Production Process</button>
+    <button class="tab-btn" data-tab="media">Media</button>
+  </nav>
 
-  <div class="main" id="main-split">
-    <section class="tree-panel" id="tree-panel">
-      <button class="tree-toggle-btn" id="btn-toggle-tree" title="Collapse structure panel">&#9664;</button>
-      <div class="tree-panel-head">
-        <span class="panel-title">Structure</span>
-        <div class="tree-panel-tools">
-          <button class="btn btn-sm btn-ghost" id="btn-expand-all">Expand all</button>
-          <button class="btn btn-sm btn-ghost" id="btn-collapse-all">Collapse all</button>
+  <!-- ---- BOM TAB ---- -->
+  <section class="tab-panel" id="tab-bom" data-tabpanel="bom">
+    <div class="panel" style="border-top:0;">
+      <div class="panel-head" id="product-info-head">
+        <span class="chev">&#9656;</span>
+        <span class="panel-title">Product Info</span>
+        <span class="panel-summary" id="product-info-summary"></span>
+      </div>
+      <div class="panel-body" id="product-info-body">
+        <div class="field-grid">
+          <label>Date<input class="input" type="date" data-hfield="date"></label>
+          <label>Finished Product Part Number<input class="input input-mono" data-hfield="partNumber"></label>
+          <label>Internal Project Name<input class="input" data-hfield="internalProjectName" placeholder="What the factory floor calls it"></label>
+          <label>Created By<input class="input" data-hfield="createdBy"></label>
+          <label>Approved By<input class="input" data-hfield="approvedBy"></label>
+          <label class="span-2" style="grid-column:1/-1;">Product Description
+            <textarea class="input" data-hfield="productDescription" rows="2" placeholder="What this product is, at a glance"></textarea>
+          </label>
+          <label class="span-2" style="grid-column:1/-1;">Finished Product Image
+            <div class="image-field">
+              <div class="image-thumb" id="product-image-thumb"><span class="placeholder">no image</span></div>
+              <input type="file" accept="image/*" id="product-image-input">
+            </div>
+          </label>
         </div>
       </div>
-      <div id="tree-root" class="tree-scroll" role="tree"></div>
-      <button class="btn-add-root" id="btn-add-root">+ Add top-level item</button>
-      <div class="legend" id="type-legend"></div>
-    </section>
-    <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
-    <section class="detail-panel" id="detail"></section>
-  </div>
+    </div>
 
-  <div class="panel">
-    <div class="panel-head" id="notes-head">
-      <span class="chev">&#9656;</span>
-      <span class="panel-title">Product Notes / Specs / Founder Notes</span>
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 20px;border-bottom:1px solid var(--line);background:var(--bg-panel);">
+      <span id="save-status" class="hint"></span>
+      <div class="spacer"></div>
+      <button class="btn btn-accent" id="btn-save">Save BOM</button>
     </div>
-    <div class="panel-body" id="notes-body">
-      <textarea class="input" id="notes-textarea" rows="4" placeholder="Additional product detail, specs, or founder notes go here&hellip;"></textarea>
+
+    <div class="main" id="main-split">
+      <section class="tree-panel" id="tree-panel">
+        <button class="tree-toggle-btn" id="btn-toggle-tree" title="Collapse structure panel">&#9664;</button>
+        <div class="tree-panel-head">
+          <span class="panel-title">Structure</span>
+          <div class="tree-panel-tools">
+            <button class="btn btn-sm btn-ghost" id="btn-expand-all">Expand all</button>
+            <button class="btn btn-sm btn-ghost" id="btn-collapse-all">Collapse all</button>
+          </div>
+        </div>
+        <div id="tree-root" class="tree-scroll" role="tree"></div>
+        <button class="btn-add-root" id="btn-add-root">+ Add top-level item</button>
+        <div class="legend" id="type-legend"></div>
+      </section>
+      <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
+      <section class="detail-panel" id="detail"></section>
     </div>
-  </div>
+
+    <div class="panel">
+      <div class="panel-head" id="notes-head">
+        <span class="chev">&#9656;</span>
+        <span class="panel-title">Product Notes / Specs / Founder Notes</span>
+      </div>
+      <div class="panel-body" id="notes-body">
+        <textarea class="input" id="notes-textarea" rows="4" placeholder="Additional product detail, specs, or founder notes go here&hellip;"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---- PRODUCTION PROCESS TAB ---- -->
+  <section class="tab-panel" id="tab-process" data-tabpanel="process" hidden>
+    <div id="proc-toolbar">
+      <div class="meta-field">
+        <div class="meta-label">File</div>
+        <div class="meta-value mono" id="proc-file-name">&mdash;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Product</div>
+        <div class="meta-value mono" id="proc-meta-part">&mdash;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Steps</div>
+        <div class="meta-value" id="proc-meta-steps">&mdash;</div>
+      </div>
+      <div class="spacer"></div>
+      <div id="proc-issues-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        <span id="proc-issues-count">0 data notes</span>
+      </div>
+      <button class="btn btn-sm btn-ghost" id="btn-proc-replace">Replace file&hellip;</button>
+      <div class="icon-btn" id="proc-zoom-out" title="Zoom out">&minus;</div>
+      <span class="proc-zoom-readout" id="proc-zoom-readout">100%</span>
+      <div class="icon-btn" id="proc-zoom-in" title="Zoom in">+</div>
+      <div class="icon-btn" id="proc-zoom-fit" title="Fit to screen">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+      </div>
+    </div>
+    <div id="proc-main">
+      <div id="proc-canvas-wrap">
+        <div id="proc-canvas"><svg id="proc-edges"></svg></div>
+        <div id="proc-empty-state">
+          <svg class="proc-empty-icon" width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="8.5" y="15" width="7" height="7" rx="1"/><path d="M6.5 11v2a2 2 0 002 2h1M17.5 11v2a2 2 0 01-2 2h-1"/></svg>
+          <div class="proc-empty-title" id="proc-empty-title">No production process file found</div>
+          <div class="proc-empty-sub" id="proc-empty-sub">This product's folder doesn't have a routing sheet yet. Choose one to add it to this folder.</div>
+          <button class="btn btn-accent" id="btn-proc-choose">Choose routing sheet&hellip;</button>
+        </div>
+        <div id="proc-legend" class="hide">
+          <div id="proc-legend-header">
+            <span id="proc-legend-drag-handle">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="1.2" fill="currentColor" stroke="none"/><circle cx="16" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>
+              Legend
+            </span>
+            <span id="proc-legend-toggle" title="Collapse">&ndash;</span>
+          </div>
+          <div id="proc-legend-body">
+            <div class="plegend-row"><div class="plegend-swatch" style="background:var(--green)"></div>In-house step</div>
+            <div class="plegend-row"><div class="plegend-swatch" style="background:var(--amber)"></div>Outsourced step</div>
+            <div class="plegend-row"><div class="plegend-swatch" style="background:var(--violet)"></div>QC step</div>
+          </div>
+        </div>
+      </div>
+      <div id="proc-drawer"><div id="proc-drawer-inner"></div></div>
+    </div>
+  </section>
+
+  <!-- ---- MEDIA TAB ---- -->
+  <section class="tab-panel" id="tab-media" data-tabpanel="media" hidden>
+    <div class="media-toolbar">
+      <button class="btn btn-accent" id="btn-upload-media">+ Add Photos / Videos</button>
+      <input type="file" id="media-file-input" accept="image/*,video/*" multiple style="display:none;">
+      <span id="media-count" class="hint"></span>
+    </div>
+    <div id="media-grid" class="media-grid"></div>
+  </section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -291,6 +559,15 @@
   <button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
   <img id="lightbox-img" src="" alt="Full size preview">
 </div>
+
+<div id="proc-issues-overlay">
+  <div id="proc-issues-modal">
+    <h3>Data notes</h3>
+    <div class="sub">Things auto-resolved or worth checking against the source sheet.</div>
+    <div id="proc-issues-list"></div>
+  </div>
+</div>
+
 <datalist id="uom-options">
   <option value="Each"><option value="Set"><option value="Pair"><option value="Roll">
   <option value="Sheet"><option value="Box"><option value="Pack">
@@ -399,11 +676,18 @@
   /* =========================================================
      STATE
   ========================================================= */
-  let dirHandle = null;
+  let rootDirHandle = null;
   let currentFileHandle = null;
   let currentBOM = null;
   let selectedId = null;
   let dirty = false;
+
+  let currentProductHandle = null;   // FileSystemDirectoryHandle for the open product folder
+  let currentProductName = "";
+  let currentProductFiles = null;    // {bom, process, media[]} from classifyProductFolder
+  let currentProcessFileHandle = null;
+  let currentProcessFileName = "";
+  let currentMediaFolderHandle = null; // the "media" subfolder inside the product folder, if any
 
   /* =========================================================
      INDEXEDDB (persist the folder handle across visits)
@@ -447,8 +731,8 @@
       return false;
     }
     try{
-      dirHandle = await window.showDirectoryPicker({ mode:"readwrite" });
-      await idbSet("bomFolder", dirHandle);
+      rootDirHandle = await window.showDirectoryPicker({ mode:"readwrite" });
+      await idbSet("productsFolder", rootDirHandle);
       return true;
     }catch(e){
       if(e.name !== "AbortError") showToast("Couldn't get folder access: " + e.message, "error");
@@ -456,13 +740,13 @@
     }
   }
   async function fsTryRestoreFolder(){
-    const saved = await idbGet("bomFolder");
+    const saved = await idbGet("productsFolder");
     if(!saved) return false;
     try{
       const perm = await saved.queryPermission({ mode:"readwrite" });
-      if(perm === "granted"){ dirHandle = saved; return true; }
+      if(perm === "granted"){ rootDirHandle = saved; return true; }
       const req = await saved.requestPermission({ mode:"readwrite" });
-      if(req === "granted"){ dirHandle = saved; return true; }
+      if(req === "granted"){ rootDirHandle = saved; return true; }
     }catch(e){ /* handle may be stale (folder moved/deleted) -- fall through */ }
     return false;
   }
@@ -527,16 +811,8 @@
     const el = document.getElementById("vendor-status");
     if(el) el.textContent = vendorList.length ? vendorList.length + " vendors loaded" : "";
   }
-  async function fsListBOMFiles(){
-    const files = [];
-    for await (const [name, handle] of dirHandle.entries()){
-      if(handle.kind === "file" && /\.xlsx$/i.test(name)) files.push({ name, handle });
-    }
-    files.sort((a,b)=> a.name.localeCompare(b.name));
-    return files;
-  }
-  async function fsCreateBOMFile(fileName){
-    return await dirHandle.getFileHandle(fileName, { create:true });
+  async function fsCreateFile(folderHandle, fileName){
+    return await folderHandle.getFileHandle(fileName, { create:true });
   }
   async function fsReadFile(fileHandle){
     const file = await fileHandle.getFile();
@@ -546,6 +822,83 @@
     const writable = await fileHandle.createWritable();
     await writable.write(arrayBuffer);
     await writable.close();
+  }
+
+  /* =========================================================
+     PRODUCT FOLDER MODEL
+     Each sub-folder of the Products root is one product, containing
+     a BOM workbook, a Production Process workbook, and media files
+     (optionally inside its own "media" sub-folder).
+  ========================================================= */
+  const MEDIA_IMAGE_RE = /\.(jpe?g|png|gif|webp|svg)$/i;
+  const MEDIA_VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
+  const MEDIA_FOLDER_NAME_RE = /^(media|photos|videos|images|assembly|assembly[\s_-]?media)$/i;
+
+  async function fsListProductFolders(){
+    const folders = [];
+    for await (const [name, handle] of rootDirHandle.entries()){
+      if(handle.kind === "directory") folders.push({ name, handle });
+    }
+    folders.sort((a,b)=> a.name.localeCompare(b.name));
+    return folders;
+  }
+
+  // Cheap signature check: is this workbook a BOM (this app's own layout)
+  // or a Production Process routing sheet (has a "Step ID" header)?
+  // Returns "bom" | "process" | null.
+  function classifyXlsxSignature(buf){
+    try{
+      const wb = XLSX.read(buf, { type:"array" });
+      const sheetName = wb.SheetNames[0];
+      if(!sheetName) return null;
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:null });
+      const bomHeaderRow = rows[21]; // row 22, 0-indexed
+      if(bomHeaderRow && String(bomHeaderRow[0]||"").trim()==="Level" && String(bomHeaderRow[1]||"").trim()==="Item Number"){
+        return "bom";
+      }
+      for(let i=0; i<Math.min(rows.length,15); i++){
+        const row = rows[i] || [];
+        if(row.some(c => String(c||"").trim().toLowerCase() === "step id")) return "process";
+      }
+    }catch(e){ /* unreadable/corrupt -- treat as unclassified */ }
+    return null;
+  }
+
+  // Scan one product folder: find its BOM file, its Process file, its media
+  // files, and (if present) a "media" sub-folder to also pull media from.
+  async function classifyProductFolder(folderHandle){
+    const result = { bom:null, process:null, media:[], mediaFolderHandle:null };
+    const entries = [];
+    let mediaFolderHandle = null;
+    for await (const [name, handle] of folderHandle.entries()){
+      entries.push({ name, handle });
+      if(handle.kind === "directory" && MEDIA_FOLDER_NAME_RE.test(name)) mediaFolderHandle = handle;
+    }
+    for(const { name, handle } of entries){
+      if(handle.kind === "directory") continue;
+      if(/\.xlsx$/i.test(name)){
+        try{
+          const buf = await fsReadFile(handle);
+          const sig = classifyXlsxSignature(buf);
+          if(sig === "bom" && !result.bom) result.bom = { name, handle };
+          else if(sig === "process" && !result.process) result.process = { name, handle };
+        }catch(e){ /* skip unreadable file */ }
+      } else if(MEDIA_IMAGE_RE.test(name)){
+        result.media.push({ name, handle, kind:"image" });
+      } else if(MEDIA_VIDEO_RE.test(name)){
+        result.media.push({ name, handle, kind:"video" });
+      }
+    }
+    if(mediaFolderHandle){
+      result.mediaFolderHandle = mediaFolderHandle;
+      for await (const [name, handle] of mediaFolderHandle.entries()){
+        if(handle.kind !== "file") continue;
+        if(MEDIA_IMAGE_RE.test(name)) result.media.push({ name, handle, kind:"image" });
+        else if(MEDIA_VIDEO_RE.test(name)) result.media.push({ name, handle, kind:"video" });
+      }
+    }
+    result.media.sort((a,b)=> a.name.localeCompare(b.name));
+    return result;
   }
 
   /* =========================================================
@@ -767,81 +1120,118 @@
   }
 
   /* =========================================================
-     LIBRARY VIEW
+     LIBRARY VIEW — product folders (each sub-folder of the
+     Products root is one product: BOM + Production Process + Media)
   ========================================================= */
   const libraryContent = document.getElementById("library-content");
   const folderStatus = document.getElementById("folder-status");
 
   async function renderLibrary(){
-    if(!dirHandle){
-      libraryContent.innerHTML = '<div class="library-empty"><h2>No folder selected</h2><p>Choose a folder on your PC to store BOM files in. You\'ll only need to do this once.</p></div>';
+    if(!rootDirHandle){
+      libraryContent.innerHTML = '<div class="library-empty"><h2>No folder selected</h2><p>Choose a folder on your PC to store product sub-folders in. Each sub-folder holds one product\'s BOM, production process, and media. You\'ll only need to do this once.</p></div>';
       folderStatus.textContent = "";
       return;
     }
-    folderStatus.textContent = "Folder: " + dirHandle.name;
-    libraryContent.innerHTML = '<div class="library-empty"><p>Loading BOMs&hellip;</p></div>';
-    const files = await fsListBOMFiles();
+    folderStatus.textContent = "Folder: " + rootDirHandle.name;
+    libraryContent.innerHTML = '<div class="library-empty"><p>Loading products&hellip;</p></div>';
+    const folders = await fsListProductFolders();
     const cards = [];
-    for(const f of files){
-      let summary = { partNumber:f.name.replace(/\.xlsx$/i,""), projectName:"", date:"", thumb:null };
+    for(const f of folders){
+      let summary = { partNumber:f.name, projectName:"", date:"", thumb:null, hasBOM:false, hasProcess:false, mediaCount:0 };
       try{
-        const buf = await fsReadFile(f.handle);
-        const bom = await workbookToBOM(buf);
-        summary.partNumber = bom.header.partNumber || summary.partNumber;
-        summary.projectName = bom.header.internalProjectName || "";
-        summary.date = bom.header.date || "";
-        summary.thumb = bom.header.productImage;
-        summary.itemCount = countAll(bom.tree);
-      }catch(e){ /* if a file fails to parse, still list it by filename */ }
-      cards.push({ file:f, summary });
+        const files = await classifyProductFolder(f.handle);
+        summary.hasBOM = !!files.bom;
+        summary.hasProcess = !!files.process;
+        summary.mediaCount = files.media.length;
+        if(files.bom){
+          try{
+            const buf = await fsReadFile(files.bom.handle);
+            const bom = await workbookToBOM(buf);
+            summary.partNumber = bom.header.partNumber || summary.partNumber;
+            summary.projectName = bom.header.internalProjectName || "";
+            summary.date = bom.header.date || "";
+            summary.thumb = bom.header.productImage;
+          }catch(e){ /* BOM file failed to parse -- still list the folder */ }
+        }
+      }catch(e){ /* folder scan failed -- still list it by name */ }
+      cards.push({ folder:f, summary });
     }
     let html = '<div class="bom-grid">';
-    html += '<div class="bom-card new-bom-card" id="card-new">+ Create New BOM</div>';
+    html += '<div class="bom-card new-bom-card" id="card-new">+ New Product</div>';
     cards.forEach((c,i)=>{
       html += `<div class="bom-card" data-idx="${i}">
         <div class="bom-card-thumb">${c.summary.thumb ? `<img src="${c.summary.thumb}">` : '<span class="placeholder">no image</span>'}</div>
         <div class="bom-card-title">${esc(c.summary.partNumber)}</div>
-        <div class="bom-card-sub">${c.summary.projectName ? esc(c.summary.projectName) + ' &middot; ' : ''}${esc(c.summary.date)}${c.summary.itemCount!=null?' &middot; '+c.summary.itemCount+' items':''}</div>
+        <div class="bom-card-sub">${c.summary.projectName ? esc(c.summary.projectName) + ' &middot; ' : ''}${esc(c.summary.date)}</div>
+        <div class="bom-card-badges">
+          <span class="badge-mini ${c.summary.hasBOM?'on':'off'}">BOM</span>
+          <span class="badge-mini ${c.summary.hasProcess?'on':'off'}">Process</span>
+          <span class="badge-mini ${c.summary.mediaCount?'on':'off'}">Media${c.summary.mediaCount?' &middot; '+c.summary.mediaCount:''}</span>
+        </div>
       </div>`;
     });
     html += '</div>';
     libraryContent.innerHTML = html;
-    document.getElementById("card-new").addEventListener("click", createNewBOM);
+    document.getElementById("card-new").addEventListener("click", createNewProduct);
     libraryContent.querySelectorAll(".bom-card[data-idx]").forEach(el=>{
-      el.addEventListener("click", () => openBOMFile(cards[Number(el.dataset.idx)].file));
+      el.addEventListener("click", () => openProduct(cards[Number(el.dataset.idx)].folder));
     });
   }
 
-  async function createNewBOM(){
-    const partNumber = prompt("Finished Product Part Number for the new BOM:");
-    if(!partNumber) return;
-    const fileName = partNumber.replace(/[\\/:*?"<>|]/g,"_") + ".xlsx";
+  async function createNewProduct(){
+    const name = prompt("Product name for the new folder:");
+    if(!name) return;
+    const folderName = name.replace(/[\\/:*?"<>|]/g,"_");
     try{
-      const fileHandle = await fsCreateBOMFile(fileName);
-      currentFileHandle = fileHandle;
-      currentBOM = makeBOM(partNumber);
-      dirty = true;
-      openEditor();
-      showToast("New BOM created", "success");
-    }catch(e){ showToast("Couldn't create file: " + e.message, "error"); }
+      const handle = await rootDirHandle.getDirectoryHandle(folderName, { create:true });
+      await openProduct({ name:folderName, handle });
+      showToast("New product folder created", "success");
+    }catch(e){ showToast("Couldn't create product folder: " + e.message, "error"); }
   }
-  async function openBOMFile(file){
+
+  async function openProduct(folder){
+    currentProductHandle = folder.handle;
+    currentProductName = folder.name;
+    document.getElementById("workspace-title").textContent = folder.name;
+    viewLibrary.hidden = true;
+    viewWorkspace.hidden = false;
+    setActiveTab("bom");
+
+    currentBOM = null; currentFileHandle = null; dirty = false;
+    currentProcessFileHandle = null; currentProcessFileName = ""; currentMediaFolderHandle = null;
+    resetProcessDiagram();
+    document.getElementById("media-grid").innerHTML = "";
+    processTabLoaded = false; mediaTabLoaded = false;
+
+    libraryContent.scrollTop = 0;
     try{
-      const buf = await fsReadFile(file.handle);
-      if(buf.byteLength === 0){
-        showToast(`"${file.name}" is 0 bytes on disk. If this folder syncs via Dropbox/OneDrive/Google Drive, it may be an online-only placeholder that hasn't downloaded locally yet.`, "error");
-        return;
-      }
-      currentBOM = await workbookToBOM(buf);
-      currentFileHandle = file.handle;
-      dirty = false;
-      openEditor();
+      currentProductFiles = await classifyProductFolder(currentProductHandle);
     }catch(e){
-      const looksLikeFormatIssue = /corrupt|zip|end of data|signature/i.test(e.message);
-      showToast(looksLikeFormatIssue
-        ? `"${file.name}" couldn't be read as a standard .xlsx file. If this wasn't created by this app, it may use a different layout or format this reader doesn't support yet.`
-        : "Couldn't open file: " + e.message, "error");
+      showToast("Couldn't read this product folder: " + e.message, "error");
+      currentProductFiles = { bom:null, process:null, media:[], mediaFolderHandle:null };
     }
+    currentMediaFolderHandle = currentProductFiles.mediaFolderHandle;
+
+    await loadBomTab();
+  }
+
+  async function loadBomTab(){
+    if(currentProductFiles && currentProductFiles.bom){
+      try{
+        const buf = await fsReadFile(currentProductFiles.bom.handle);
+        currentBOM = await workbookToBOM(buf);
+        currentFileHandle = currentProductFiles.bom.handle;
+        dirty = false;
+      }catch(e){
+        showToast("Couldn't read the BOM file in this folder: " + e.message, "error");
+        currentBOM = makeBOM(currentProductName);
+        currentFileHandle = null;
+      }
+    } else {
+      currentBOM = makeBOM(currentProductName);
+      currentFileHandle = null;
+    }
+    openEditor();
   }
 
   document.getElementById("btn-pick-folder").addEventListener("click", async () => {
@@ -852,27 +1242,39 @@
   });
 
   /* =========================================================
-     EDITOR VIEW
+     WORKSPACE VIEW — tab switching + BOM tab (tree editor)
   ========================================================= */
   const viewLibrary = document.getElementById("view-library");
-  const viewEditor = document.getElementById("view-editor");
+  const viewWorkspace = document.getElementById("view-workspace");
   const treeRootEl = document.getElementById("tree-root");
   const detailEl = document.getElementById("detail");
+  let processTabLoaded = false;
+  let mediaTabLoaded = false;
+
+  function setActiveTab(tab){
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll(".tab-panel").forEach(p => { p.hidden = p.dataset.tabpanel !== tab; });
+  }
+  document.querySelectorAll(".tab-btn").forEach(btn=>{
+    btn.addEventListener("click", async () => {
+      const tab = btn.dataset.tab;
+      setActiveTab(tab);
+      if(tab === "process" && !processTabLoaded){ processTabLoaded = true; await loadProcessTab(); }
+      if(tab === "media" && !mediaTabLoaded){ mediaTabLoaded = true; await loadMediaTab(); }
+    });
+  });
 
   function openEditor(){
     selectedId = currentBOM.tree[0] ? currentBOM.tree[0].id : null;
-    document.getElementById("editor-title").textContent = currentBOM.header.partNumber || "(untitled)";
     fillHeaderForm();
     renderTypeLegend();
     renderTree();
     renderDetail();
     updateSaveStatus();
-    viewLibrary.hidden = true;
-    viewEditor.hidden = false;
   }
   function backToLibrary(){
     if(dirty && !confirm("You have unsaved changes. Leave without saving?")) return;
-    viewEditor.hidden = true;
+    viewWorkspace.hidden = true;
     viewLibrary.hidden = false;
     renderLibrary();
   }
@@ -923,7 +1325,6 @@
   document.querySelectorAll("[data-hfield]").forEach(el=>{
     el.addEventListener("input", ()=>{
       currentBOM.header[el.dataset.hfield] = el.value;
-      if(el.dataset.hfield === "partNumber") document.getElementById("editor-title").textContent = el.value || "(untitled)";
       updateProductInfoSummary();
       markDirty();
     });
@@ -1234,8 +1635,14 @@
 
   /* ---- save ---- */
   document.getElementById("btn-save").addEventListener("click", async ()=>{
-    if(!currentFileHandle){ showToast("No file open", "error"); return; }
+    if(!currentProductHandle){ showToast("No product folder open", "error"); return; }
     try{
+      if(!currentFileHandle){
+        // first save for this product -- create the BOM file inside its folder
+        const fileName = (currentBOM.header.partNumber || currentProductName).replace(/[\\/:*?"<>|]/g,"_") + ".xlsx";
+        currentFileHandle = await fsCreateFile(currentProductHandle, fileName);
+        if(currentProductFiles) currentProductFiles.bom = { name:fileName, handle:currentFileHandle };
+      }
       const wb = await bomToWorkbook(currentBOM);
       const buf = await wb.xlsx.writeBuffer();
       await fsWriteFile(currentFileHandle, buf);
@@ -1248,6 +1655,747 @@
         showToast("Saved", "success");
       }
     }catch(e){ showToast("Save failed: " + e.message, "error"); }
+  });
+
+  /* =========================================================
+     PRODUCTION PROCESS TAB (ported from Process Traveler)
+  ========================================================= */
+  let PROC_STEPS = {};
+  let PROC_ORDER = [];
+  let PROC_LAYOUT = {};
+  let PROC_SELECTED = null;
+  let PROC_ZOOM = 1;
+  let PROC_ISSUES = [];
+
+  const PROC_NODE_MIN_W = 180, PROC_NODE_MAX_W = 270;
+  const PROC_COL_GAP = 70;
+  const PROC_ROW_GAP = 40;
+  const PROC_COL_MARGIN_L = 90;
+  const PROC_ROW_MARGIN_T = 60;
+  const PROC_IO_GAP = 18;
+
+  function procNormHeader(s){
+    return String(s||"").toLowerCase().replace(/\n/g," ").replace(/\s+/g," ").trim();
+  }
+  function procMatchColumns(headerRow){
+    const map = {};
+    headerRow.forEach((cell, idx) => {
+      const h = procNormHeader(cell);
+      if(!h) return;
+      if(h === "step id") map.stepId = idx;
+      else if(h === "step name") map.stepName = idx;
+      else if(h === "inputs") map.inputItem = idx;
+      else if(h === "input type") map.inputType = idx;
+      else if(h.includes("step description")) map.description = idx;
+      else if(h.includes("flow type")) map.flowType = idx;
+      else if(h.startsWith("predecessor")) map.predecessor = idx;
+      else if(h === "execution") map.execution = idx;
+      else if(h.includes("work center") || h.includes("vendor")) map.vendor = idx;
+      else if(h.includes("output item code")) map.outputCode = idx;
+      else if(h.includes("output item name") || (h.includes("output item") && map.outputCode !== idx)) map.outputName = idx;
+      else if(h.includes("qc")) map.qc = idx;
+      else if(h === "notes") map.notes = idx;
+    });
+    return map;
+  }
+  function procFindHeaderRow(rows){
+    for(let i=0;i<Math.min(rows.length,15);i++){
+      const row = rows[i] || [];
+      if(row.some(c => procNormHeader(c) === "step id")) return i;
+    }
+    return -1;
+  }
+  function procFindLabelValue(rows, labelRegex, maxRow){
+    for(let r=0; r<Math.min(rows.length, maxRow); r++){
+      const row = rows[r] || [];
+      for(let c=0; c<row.length; c++){
+        if(labelRegex.test(String(row[c]||""))){
+          for(let c2=c+1; c2<row.length; c2++){
+            if(row[c2] !== null && row[c2] !== undefined && String(row[c2]).trim() !== ""){
+              return String(row[c2]).trim();
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function procParseWorkbook(wb){
+    PROC_ISSUES = [];
+    let sheetName = wb.SheetNames.find(name => {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1});
+      return procFindHeaderRow(rows) !== -1;
+    });
+    if(!sheetName) sheetName = wb.SheetNames[0];
+
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header:1, defval:null});
+    const headerRowIdx = procFindHeaderRow(rows);
+    if(headerRowIdx === -1) throw new Error("Could not find a 'Step ID' header row in this workbook.");
+    const cols = procMatchColumns(rows[headerRowIdx]);
+    if(cols.stepId === undefined) throw new Error("Could not identify the Step ID column.");
+
+    const productPart = procFindLabelValue(rows, /product part/i, headerRowIdx);
+    const projectName = procFindLabelValue(rows, /project name/i, headerRowIdx);
+
+    const steps = {};
+    const order = [];
+    let current = null;
+
+    for(let r = headerRowIdx+1; r < rows.length; r++){
+      const row = rows[r] || [];
+      const get = (key) => cols[key] !== undefined ? row[cols[key]] : null;
+      const sid = get("stepId");
+
+      if(sid !== null && sid !== undefined && String(sid).trim() !== ""){
+        const id = String(sid).trim();
+        if(steps[id]){
+          PROC_ISSUES.push(`Duplicate Step ID "${id}" — later occurrence merged into the first. Check the source sheet.`);
+          current = steps[id];
+        } else {
+          current = {
+            id,
+            name: String(get("stepName")||"").trim(),
+            description: String(get("description")||"").trim(),
+            predecessorRaw: String(get("predecessor")||"").trim(),
+            predecessors: [],
+            flowType: String(get("flowType")||"").trim(),
+            execution: String(get("execution")||"").trim(),
+            vendor: String(get("vendor")||"").trim(),
+            outputCode: String(get("outputCode")||"").trim() || null,
+            outputName: String(get("outputName")||"").trim() || null,
+            qc: String(get("qc")||"").trim(),
+            notes: String(get("notes")||"").trim(),
+            inputs: []
+          };
+          steps[id] = current;
+          order.push(id);
+        }
+      }
+
+      const inputItem = get("inputItem");
+      if(inputItem !== null && inputItem !== undefined && String(inputItem).trim() !== "" && current){
+        current.inputs.push({
+          item: String(inputItem).trim(),
+          type: String(get("inputType")||"").trim() || "—"
+        });
+      }
+    }
+
+    Object.values(steps).forEach(step => {
+      if(!step.predecessorRaw) return;
+      const parts = step.predecessorRaw.split(/[,\n]/).map(s=>s.trim()).filter(Boolean);
+      parts.forEach(p => {
+        if(p === step.id){
+          PROC_ISSUES.push(`${step.id} lists itself as its own predecessor — ignored.`);
+          return;
+        }
+        if(!steps[p]){
+          PROC_ISSUES.push(`${step.id}'s predecessor "${p}" was not found among parsed Step IDs — that link is not drawn.`);
+          return;
+        }
+        step.predecessors.push(p);
+      });
+    });
+
+    Object.values(steps).forEach(step => {
+      const e = step.execution.toLowerCase();
+      if(/\bqc\b/i.test(step.name)) step.execClass = "qc";
+      else if(e.includes("outsourc")) step.execClass = "outsourced";
+      else if(e.includes("house")) step.execClass = "inhouse";
+      else step.execClass = "unspecified";
+    });
+
+    return {productPart, projectName, steps, order, sheetName};
+  }
+
+  function procComputeColumns(steps, order){
+    const depth = {};
+    const visiting = new Set();
+    function dfsDepth(id){
+      if(depth[id] !== undefined) return depth[id];
+      if(visiting.has(id)){
+        PROC_ISSUES.push(`A predecessor cycle was detected involving "${id}" — depth defaulted to 0 for layout purposes.`);
+        depth[id] = 0;
+        return 0;
+      }
+      visiting.add(id);
+      const preds = steps[id].predecessors;
+      const d = preds.length ? 1 + Math.max(...preds.map(dfsDepth)) : 0;
+      visiting.delete(id);
+      depth[id] = d;
+      return d;
+    }
+    order.forEach(dfsDepth);
+
+    const maxDepth = Math.max(0, ...Object.values(depth));
+    const columns = [];
+    for(let d=0; d<=maxDepth; d++) columns.push([]);
+    order.forEach(id => columns[depth[id]].push(id));
+
+    const rowIndex = {};
+    columns[0].forEach((id,i) => rowIndex[id] = i);
+    for(let d=1; d<=maxDepth; d++){
+      const col = columns[d];
+      const scored = col.map((id, origIdx) => {
+        const preds = steps[id].predecessors.filter(p => rowIndex[p] !== undefined);
+        const score = preds.length
+          ? preds.reduce((s,p)=>s+rowIndex[p],0)/preds.length
+          : origIdx + 0.0001*origIdx;
+        return {id, score, origIdx};
+      });
+      scored.sort((a,b) => a.score - b.score || a.origIdx - b.origIdx);
+      columns[d] = scored.map(s=>s.id);
+      columns[d].forEach((id,i) => rowIndex[id] = i);
+    }
+    return {depth, columns, maxDepth};
+  }
+
+  function pEl(tag, cls, html){
+    const e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(html !== undefined) e.innerHTML = html;
+    return e;
+  }
+
+  function resetProcessDiagram(){
+    PROC_STEPS = {}; PROC_ORDER = []; PROC_LAYOUT = {}; PROC_SELECTED = null; PROC_ZOOM = 1; PROC_ISSUES = [];
+    const canvas = document.getElementById("proc-canvas");
+    const edgesSvg = document.getElementById("proc-edges");
+    if(canvas) canvas.querySelectorAll(".pnode,.pio-box,.pstart-end").forEach(n=>n.remove());
+    if(edgesSvg) edgesSvg.innerHTML = "";
+    const legend = document.getElementById("proc-legend");
+    if(legend) legend.classList.add("hide");
+    const drawer = document.getElementById("proc-drawer");
+    if(drawer) drawer.classList.remove("open");
+    document.getElementById("proc-file-name").textContent = "\u2014";
+    document.getElementById("proc-meta-part").textContent = "\u2014";
+    document.getElementById("proc-meta-steps").textContent = "\u2014";
+    document.getElementById("proc-issues-btn").classList.remove("show");
+  }
+
+  async function loadProcessTab(){
+    if(currentProductFiles && currentProductFiles.process){
+      currentProcessFileHandle = currentProductFiles.process.handle;
+      currentProcessFileName = currentProductFiles.process.name;
+      await renderProcessFromHandle(currentProcessFileHandle, currentProcessFileName);
+    } else {
+      document.getElementById("proc-empty-title").textContent = "No production process file found";
+      document.getElementById("proc-empty-sub").textContent = "This product's folder doesn't have a routing sheet yet. Choose one to add it to this folder.";
+      document.getElementById("proc-empty-state").classList.remove("hide");
+    }
+  }
+
+  async function renderProcessFromHandle(fileHandle, fileName){
+    try{
+      const buf = await fsReadFile(fileHandle);
+      const data = new Uint8Array(buf);
+      const wb = XLSX.read(data, {type:"array"});
+      const parsed = procParseWorkbook(wb);
+      PROC_STEPS = parsed.steps;
+      PROC_ORDER = parsed.order;
+
+      document.getElementById("proc-file-name").textContent = fileName;
+      document.getElementById("proc-meta-part").textContent = parsed.productPart || "\u2014";
+      document.getElementById("proc-meta-steps").textContent = PROC_ORDER.length + " steps";
+
+      const issuesBtn = document.getElementById("proc-issues-btn");
+      if(PROC_ISSUES.length){
+        document.getElementById("proc-issues-count").textContent = PROC_ISSUES.length + " data note" + (PROC_ISSUES.length>1?"s":"");
+        issuesBtn.classList.add("show");
+      } else {
+        issuesBtn.classList.remove("show");
+      }
+
+      document.getElementById("proc-empty-state").classList.add("hide");
+      deselectProcessStep();
+      renderProcessDiagram();
+      setTimeout(()=>document.getElementById("proc-zoom-fit").click(), 30);
+    }catch(err){
+      showToast("Couldn't read this routing sheet: " + err.message, "error");
+      document.getElementById("proc-empty-title").textContent = "Couldn't read this routing sheet";
+      document.getElementById("proc-empty-sub").textContent = err.message;
+      document.getElementById("proc-empty-state").classList.remove("hide");
+    }
+  }
+
+  async function pickAndAttachProcessFile(){
+    if(!window.showOpenFilePicker){
+      showToast("This browser doesn't support the File System Access API. Use Chrome or Edge.", "error");
+      return;
+    }
+    try{
+      const [handle] = await window.showOpenFilePicker({
+        types:[{ description:"Excel files", accept:{ "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":[".xlsx"] } }],
+      });
+      const buf = await (await handle.getFile()).arrayBuffer();
+      // copy it into this product's folder so the folder stays self-contained
+      const targetName = currentProcessFileName || handle.name;
+      const targetHandle = await fsCreateFile(currentProductHandle, targetName);
+      await fsWriteFile(targetHandle, buf);
+      currentProcessFileHandle = targetHandle;
+      currentProcessFileName = targetName;
+      if(currentProductFiles) currentProductFiles.process = { name:targetName, handle:targetHandle };
+      await renderProcessFromHandle(targetHandle, targetName);
+      showToast("Routing sheet added to this product's folder", "success");
+    }catch(e){
+      if(e.name !== "AbortError") showToast("Couldn't add routing sheet: " + e.message, "error");
+    }
+  }
+  document.getElementById("btn-proc-choose").addEventListener("click", pickAndAttachProcessFile);
+  document.getElementById("btn-proc-replace").addEventListener("click", pickAndAttachProcessFile);
+
+  function renderProcessDiagram(){
+    const canvas = document.getElementById("proc-canvas");
+    const edgesSvg = document.getElementById("proc-edges");
+    canvas.querySelectorAll(".pnode,.pio-box,.pstart-end").forEach(n=>n.remove());
+    edgesSvg.innerHTML = "";
+
+    const {columns} = procComputeColumns(PROC_STEPS, PROC_ORDER);
+
+    const nodeEls = {}, inputEls = {}, outputEls = {};
+    PROC_ORDER.forEach(id => {
+      const step = PROC_STEPS[id];
+
+      if(step.inputs.length){
+        const box = pEl("div","pio-box input-box");
+        box.dataset.forStep = id;
+        let html = `<div class="pio-title">Inputs</div>`;
+        step.inputs.forEach(inp => { html += `<div class="pio-line">${esc(inp.item)} <i>(${esc(inp.type)})</i></div>`; });
+        box.innerHTML = html;
+        canvas.appendChild(box);
+        inputEls[id] = box;
+      }
+      if(step.outputCode){
+        const box = pEl("div","pio-box output-box");
+        box.dataset.forStep = id;
+        const nameLine = (step.outputName && step.outputName !== step.outputCode) ? `<div class="pio-line">${esc(step.outputName)}</div>` : "";
+        box.innerHTML = `<div class="pio-title">Output</div><div class="pio-line"><b>${esc(step.outputCode)}</b></div>${nameLine}`;
+        canvas.appendChild(box);
+        outputEls[id] = box;
+      }
+
+      const node = pEl("div","pnode exec-"+step.execClass);
+      node.dataset.id = id;
+      node.innerHTML = `
+        <div class="pnode-id">${esc(id)}</div>
+        <div class="pnode-name">${esc(step.name)}</div>
+        <div class="pnode-vendor"><span class="pexec-dot"></span><span>${esc(step.vendor || step.execution || "\u2014")}</span></div>
+      `;
+      node.addEventListener("click", () => selectProcessStep(id));
+      canvas.appendChild(node);
+      nodeEls[id] = node;
+    });
+
+    const size = {};
+    PROC_ORDER.forEach(id => {
+      size[id] = {
+        nodeW: nodeEls[id].offsetWidth, nodeH: nodeEls[id].offsetHeight,
+        inputW: inputEls[id] ? inputEls[id].offsetWidth : 0, inputH: inputEls[id] ? inputEls[id].offsetHeight : 0,
+        outputW: outputEls[id] ? outputEls[id].offsetWidth : 0, outputH: outputEls[id] ? outputEls[id].offsetHeight : 0,
+      };
+    });
+
+    const colWidth = columns.map(col => Math.max(1, ...col.map(id => {
+      const s = size[id];
+      return Math.max(s.nodeW, s.inputW, s.outputW);
+    })));
+    const colX = [];
+    let cursorX = PROC_COL_MARGIN_L;
+    colWidth.forEach(w => { colX.push(cursorX); cursorX += w + PROC_COL_GAP; });
+
+    const layout = {};
+    columns.forEach((col, d) => {
+      let top = PROC_ROW_MARGIN_T;
+      const centerX = colX[d] + colWidth[d]/2;
+      col.forEach(id => {
+        const s = size[id];
+        const ySt = top + (s.inputH ? s.inputH + PROC_IO_GAP : 0);
+        const yOut = ySt + s.nodeH + PROC_IO_GAP;
+        const nodeX = centerX - s.nodeW/2;
+        layout[id] = {
+          x: nodeX, y: ySt, w: s.nodeW, h: s.nodeH, centerX,
+          inputW: s.inputW, inputH: s.inputH, inputX: s.inputH ? centerX - s.inputW/2 : null, inputY: s.inputH ? ySt - s.inputH - PROC_IO_GAP : null,
+          outputW: s.outputW, outputH: s.outputH, outputX: s.outputH ? centerX - s.outputW/2 : null, outputY: s.outputH ? yOut : null,
+          depth: d
+        };
+        const blockBottom = ySt + s.nodeH + (s.outputH ? PROC_IO_GAP + s.outputH : 0);
+        top = blockBottom + PROC_ROW_GAP;
+      });
+    });
+    PROC_LAYOUT = layout;
+
+    const colBottom = columns.map(col => {
+      let maxB = 0;
+      col.forEach(id => {
+        const L = layout[id];
+        maxB = Math.max(maxB, L.outputY!=null ? L.outputY+L.outputH : L.y+L.h);
+      });
+      return maxB;
+    });
+
+    const gapGroups = {};
+    const longDescriptors = [];
+    PROC_ORDER.forEach(id => {
+      const step = PROC_STEPS[id];
+      const L = layout[id];
+      step.predecessors.forEach(p => {
+        const PL = layout[p];
+        const srcX = PL.x + PL.w, srcY = PL.y + PL.h/2;
+        const tgtX = L.x, tgtY = L.y + L.h/2;
+        const spanStart = Math.min(PL.depth, L.depth);
+        const spanEnd = Math.max(PL.depth, L.depth);
+        const desc = {srcX, srcY, tgtX, tgtY, color:"#3A4653", marker:"parrow-flow", key:`${id}|${p}`};
+        if(spanEnd - spanStart > 1){
+          desc.spanStart = spanStart; desc.spanEnd = spanEnd;
+          longDescriptors.push(desc);
+        } else {
+          if(!gapGroups[spanStart]) gapGroups[spanStart] = [];
+          gapGroups[spanStart].push(desc);
+        }
+      });
+    });
+
+    const flowEdges = [];
+    Object.keys(gapGroups).forEach(gk => {
+      const gapIdx = +gk;
+      const group = gapGroups[gapIdx];
+      const gapLeftX = colX[gapIdx] + colWidth[gapIdx];
+      const gapRightX = colX[gapIdx+1];
+      const gapW = Math.max(10, gapRightX - gapLeftX);
+      const sorted = [...group].sort((a,b) => a.tgtY - b.tgtY || a.srcY - b.srcY);
+      const n = sorted.length;
+      sorted.forEach((e, i) => {
+        const laneX = n === 1 ? (gapLeftX+gapRightX)/2 : gapLeftX + (i+1)*(gapW/(n+1));
+        e.points = [[e.srcX,e.srcY],[laneX,e.srcY],[laneX,e.tgtY],[e.tgtX,e.tgtY]];
+        flowEdges.push(e);
+      });
+    });
+
+    let longLane = 0;
+    longDescriptors.forEach(e => {
+      let maxB = 0;
+      for(let d=e.spanStart; d<=e.spanEnd; d++) maxB = Math.max(maxB, colBottom[d]||0);
+      const corridorY = maxB + 34 + (longLane % 8) * 16;
+      longLane++;
+      e.points = [[e.srcX,e.srcY],[e.srcX+24,e.srcY],[e.srcX+24,corridorY],[e.tgtX-24,corridorY],[e.tgtX-24,e.tgtY],[e.tgtX,e.tgtY]];
+      flowEdges.push(e);
+    });
+
+    const maxCorridorY = Math.max(0, ...longDescriptors.map(e => Math.max(...e.points.map(pt=>pt[1]))));
+    const totalW = cursorX + 160;
+    const totalH = Math.max(...Object.values(layout).map(l => (l.outputY||l.y+l.h) + 80), maxCorridorY + 60, 400);
+    canvas.style.width = totalW + "px";
+    canvas.style.height = totalH + "px";
+    edgesSvg.setAttribute("width", totalW);
+    edgesSvg.setAttribute("height", totalH);
+    edgesSvg.setAttribute("viewBox", `0 0 ${totalW} ${totalH}`);
+
+    PROC_ORDER.forEach(id => {
+      const L = layout[id];
+      nodeEls[id].style.left = L.x+"px"; nodeEls[id].style.top = L.y+"px";
+      if(inputEls[id]){ inputEls[id].style.left = L.inputX+"px"; inputEls[id].style.top = L.inputY+"px"; }
+      if(outputEls[id]){ outputEls[id].style.left = L.outputX+"px"; outputEls[id].style.top = L.outputY+"px"; }
+    });
+
+    edgesSvg.innerHTML = `
+      <defs>
+        <marker id="parrow-flow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#3A4653"/></marker>
+        <marker id="parrow-io" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#4A5563"/></marker>
+        <marker id="parrow-io-out" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#1A9483"/></marker>
+      </defs>`;
+
+    PROC_ORDER.forEach(id => {
+      const step = PROC_STEPS[id];
+      const L = layout[id];
+      if(step.predecessors.length === 0){
+        const sx = L.x - 76, sy = L.y + L.h/2 - 15;
+        const s = pEl("div","pstart-end"); s.style.left=sx+"px"; s.style.top=sy+"px"; s.style.width="60px"; s.style.height="30px";
+        s.textContent = "START";
+        canvas.appendChild(s);
+        procDrawEdge(edgesSvg, sx+60, sy+15, L.x, L.y+L.h/2, "#7A8593", false, "parrow-io");
+      }
+    });
+
+    const hasSuccessor = new Set();
+    PROC_ORDER.forEach(id => PROC_STEPS[id].predecessors.forEach(p => hasSuccessor.add(p)));
+    PROC_ORDER.forEach(id => {
+      if(!hasSuccessor.has(id)){
+        const L = layout[id];
+        const originRight = L.outputH ? L.outputX + L.outputW : L.x + L.w;
+        const originY = L.outputH ? L.outputY + L.outputH/2 : L.y + L.h/2;
+        const ex = originRight + 100, ey = originY - 15;
+        const e = pEl("div","pstart-end"); e.style.left=ex+"px"; e.style.top=ey+"px"; e.style.width="60px"; e.style.height="30px";
+        e.textContent = "END";
+        canvas.appendChild(e);
+        procDrawEdge(edgesSvg, originRight, originY, ex, ey+15, "#7A8593", false, "parrow-io");
+      }
+    });
+
+    PROC_ORDER.forEach(id => {
+      const step = PROC_STEPS[id];
+      const L = layout[id];
+      if(step.inputs.length) procDrawEdge(edgesSvg, L.centerX, L.inputY+L.inputH, L.centerX, L.y, "#4A5563", false, "parrow-io");
+      if(step.outputCode) procDrawEdge(edgesSvg, L.centerX, L.y+L.h, L.centerX, L.outputY, "#1A9483", false, "parrow-io-out");
+    });
+
+    flowEdges.forEach(e => { procDrawPolyline(edgesSvg, e.points, e.color, false, e.marker, e.key); });
+
+    document.getElementById("proc-legend").classList.remove("hide");
+    applyProcessZoom();
+  }
+
+  function procDrawPolyline(svg, rawPoints, color, dashed, markerId, edgeKey){
+    const pts = [];
+    rawPoints.forEach(p => {
+      const last = pts[pts.length-1];
+      if(!last || Math.abs(last[0]-p[0]) > 0.5 || Math.abs(last[1]-p[1]) > 0.5) pts.push(p);
+    });
+    if(pts.length < 2) return;
+    const d = pts.map((p,i) => (i===0?"M":"L")+p[0]+","+p[1]).join(" ");
+    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill","none");
+    path.setAttribute("stroke", color);
+    path.setAttribute("stroke-width","1.6");
+    if(dashed) path.setAttribute("stroke-dasharray","5,4");
+    if(markerId) path.setAttribute("marker-end", `url(#${markerId})`);
+    path.classList.add("edge-path");
+    if(edgeKey) path.dataset.edgeKey = edgeKey;
+    svg.appendChild(path);
+  }
+  function procDrawEdge(svg, x1,y1,x2,y2, color, dashed, markerId, edgeKey){
+    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+    let d;
+    if(Math.abs(x1-x2) < 0.5 || Math.abs(y1-y2) < 0.5){
+      d = `M ${x1},${y1} L ${x2},${y2}`;
+    } else {
+      const midX = x1 + (x2-x1)/2;
+      d = `M ${x1},${y1} L ${midX},${y1} L ${midX},${y2} L ${x2},${y2}`;
+    }
+    path.setAttribute("d", d);
+    path.setAttribute("fill","none");
+    path.setAttribute("stroke", color);
+    path.setAttribute("stroke-width","1.6");
+    if(dashed) path.setAttribute("stroke-dasharray","5,4");
+    if(markerId) path.setAttribute("marker-end", `url(#${markerId})`);
+    path.classList.add("edge-path");
+    if(edgeKey) path.dataset.edgeKey = edgeKey;
+    svg.appendChild(path);
+  }
+
+  function selectProcessStep(id){
+    PROC_SELECTED = id;
+    const step = PROC_STEPS[id];
+    const connected = new Set([id, ...step.predecessors]);
+    PROC_ORDER.forEach(sid => { if(PROC_STEPS[sid].predecessors.includes(id)) connected.add(sid); });
+
+    document.querySelectorAll(".pnode").forEach(n => {
+      n.classList.toggle("selected", n.dataset.id === id);
+      n.classList.toggle("dimmed", !connected.has(n.dataset.id));
+    });
+    document.querySelectorAll(".pio-box").forEach(b => {
+      b.classList.toggle("dimmed", !connected.has(b.dataset.forStep));
+    });
+    document.querySelectorAll("#proc-edges .edge-path").forEach(p => {
+      const key = p.dataset.edgeKey;
+      if(!key){ p.style.opacity = 1; return; }
+      const [a,b] = key.split("|");
+      p.style.opacity = (a===id || b===id) ? 1 : 0.15;
+    });
+
+    renderProcessDrawer(step);
+    document.getElementById("proc-drawer").classList.add("open");
+  }
+  function deselectProcessStep(){
+    PROC_SELECTED = null;
+    document.querySelectorAll(".pnode").forEach(n => n.classList.remove("selected","dimmed"));
+    document.querySelectorAll(".pio-box").forEach(b => b.classList.remove("dimmed"));
+    document.querySelectorAll("#proc-edges .edge-path").forEach(p => p.style.opacity = 1);
+    document.getElementById("proc-drawer").classList.remove("open");
+  }
+  function renderProcessDrawer(step){
+    const wrap = document.getElementById("proc-drawer-inner");
+    let html = `<div class="pdrawer-close" id="proc-drawer-close">\u2715</div>`;
+    html += `<div class="pdrawer-id">${esc(step.id)}</div>`;
+    html += `<div class="pdrawer-name">${esc(step.name)}</div>`;
+    html += `<div class="pdrawer-badges">`;
+    html += `<span class="pbadge exec-${step.execClass}"><span class="pexec-dot"></span>${esc(step.execution || (step.execClass==='qc'?'QC station':'Unspecified'))}</span>`;
+    if(step.vendor) html += `<span class="pbadge">${esc(step.vendor)}</span>`;
+    if(step.flowType) html += `<span class="pbadge flow">${esc(step.flowType.trim())}</span>`;
+    html += `</div>`;
+
+    if(step.predecessors.length){
+      html += `<div class="pdrawer-section"><div class="pdrawer-section-title">Predecessor step(s)</div><div class="ppred-chip-row">`;
+      step.predecessors.forEach(p => { html += `<div class="ppred-chip" data-goto="${esc(p)}">${esc(p)}</div>`; });
+      html += `</div></div>`;
+    } else {
+      html += `<div class="pdrawer-section"><div class="pdrawer-section-title">Predecessor step(s)</div><div class="pdrawer-body-text muted">None \u2014 starting operation</div></div>`;
+    }
+    if(step.inputs.length){
+      html += `<div class="pdrawer-section"><div class="pdrawer-section-title">Inputs (${step.inputs.length})</div><div class="pio-table">`;
+      step.inputs.forEach(inp => { html += `<div class="pio-row"><span class="pio-row-item">${esc(inp.item)}</span><span class="pio-row-type">${esc(inp.type)}</span></div>`; });
+      html += `</div></div>`;
+    }
+    if(step.outputCode){
+      html += `<div class="pdrawer-section"><div class="pdrawer-section-title">Output</div><div class="poutput-card">
+        <div class="poutput-card-code">${esc(step.outputCode)}</div>
+        ${step.outputName && step.outputName!==step.outputCode ? `<div class="poutput-card-name">${esc(step.outputName)}</div>` : ""}
+      </div></div>`;
+    }
+    if(step.description) html += `<div class="pdrawer-section"><div class="pdrawer-section-title">Description</div><div class="pdrawer-body-text">${esc(step.description)}</div></div>`;
+    if(step.qc) html += `<div class="pdrawer-section"><div class="pdrawer-section-title">QC &amp; final steps</div><div class="pdrawer-body-text">${esc(step.qc)}</div></div>`;
+    if(step.notes) html += `<div class="pdrawer-section"><div class="pdrawer-section-title">Notes</div><div class="pdrawer-body-text">${esc(step.notes)}</div></div>`;
+
+    wrap.innerHTML = html;
+    document.getElementById("proc-drawer-close").addEventListener("click", deselectProcessStep);
+    wrap.querySelectorAll("[data-goto]").forEach(chip=>{
+      chip.addEventListener("click", () => {
+        const targetId = chip.dataset.goto;
+        selectProcessStep(targetId);
+        scrollToProcessStep(targetId);
+      });
+    });
+  }
+  function scrollToProcessStep(id){
+    const L = PROC_LAYOUT[id];
+    if(!L) return;
+    const wrap = document.getElementById("proc-canvas-wrap");
+    wrap.scrollTo({
+      left: Math.max(0, (L.x*PROC_ZOOM) - wrap.clientWidth/2 + (L.w*PROC_ZOOM)/2),
+      top: Math.max(0, (L.y*PROC_ZOOM) - wrap.clientHeight/2 + (L.h*PROC_ZOOM)/2),
+      behavior:"smooth"
+    });
+  }
+
+  (function initProcLegend(){
+    const legend = document.getElementById("proc-legend");
+    const header = document.getElementById("proc-legend-header");
+    const toggle = document.getElementById("proc-legend-toggle");
+    let dragOffset = null;
+    header.addEventListener("mousedown", (e) => {
+      if(e.target === toggle) return;
+      const wrap = document.getElementById("proc-canvas-wrap");
+      const wrapRect = wrap.getBoundingClientRect();
+      const legendRect = legend.getBoundingClientRect();
+      dragOffset = { x: e.clientX - legendRect.left, y: e.clientY - legendRect.top, wrapRect };
+      e.preventDefault();
+    });
+    document.addEventListener("mousemove", (e) => {
+      if(!dragOffset) return;
+      const wrap = document.getElementById("proc-canvas-wrap");
+      const wrapRect = wrap.getBoundingClientRect();
+      let left = e.clientX - wrapRect.left - dragOffset.x;
+      let top = e.clientY - wrapRect.top - dragOffset.y;
+      left = Math.max(4, Math.min(left, wrapRect.width - legend.offsetWidth - 4));
+      top = Math.max(4, Math.min(top, wrapRect.height - legend.offsetHeight - 4));
+      legend.style.left = left+"px"; legend.style.top = top+"px"; legend.style.bottom = "auto";
+    });
+    document.addEventListener("mouseup", () => { dragOffset = null; });
+    toggle.addEventListener("click", () => {
+      const collapsed = legend.classList.toggle("collapsed");
+      toggle.textContent = collapsed ? "+" : "\u2013";
+      toggle.title = collapsed ? "Expand" : "Collapse";
+    });
+  })();
+
+  function applyProcessZoom(){
+    document.getElementById("proc-canvas").style.transform = `scale(${PROC_ZOOM})`;
+    document.getElementById("proc-zoom-readout").textContent = Math.round(PROC_ZOOM*100)+"%";
+  }
+  document.getElementById("proc-zoom-in").addEventListener("click", ()=>{ PROC_ZOOM = Math.min(2, PROC_ZOOM+0.1); applyProcessZoom(); });
+  document.getElementById("proc-zoom-out").addEventListener("click", ()=>{ PROC_ZOOM = Math.max(0.2, PROC_ZOOM-0.1); applyProcessZoom(); });
+  document.getElementById("proc-zoom-fit").addEventListener("click", ()=>{
+    const wrap = document.getElementById("proc-canvas-wrap");
+    const canvas = document.getElementById("proc-canvas");
+    if(!canvas.offsetWidth) return;
+    const scaleX = (wrap.clientWidth-40) / canvas.offsetWidth;
+    const scaleY = (wrap.clientHeight-40) / canvas.offsetHeight;
+    PROC_ZOOM = Math.max(0.2, Math.min(1.4, Math.min(scaleX, scaleY)));
+    applyProcessZoom();
+    wrap.scrollTo({left:0, top:0});
+  });
+
+  document.getElementById("proc-issues-btn").addEventListener("click", () => {
+    const list = document.getElementById("proc-issues-list");
+    list.innerHTML = PROC_ISSUES.map(msg => `<div class="pissue-item"><div class="pissue-dot"></div><div>${esc(msg)}</div></div>`).join("");
+    document.getElementById("proc-issues-overlay").classList.add("show");
+  });
+  document.getElementById("proc-issues-overlay").addEventListener("click", (e) => {
+    if(e.target.id === "proc-issues-overlay") document.getElementById("proc-issues-overlay").classList.remove("show");
+  });
+  document.getElementById("proc-canvas-wrap").addEventListener("click", (e) => {
+    if(e.target.id === "proc-canvas-wrap" || e.target.id === "proc-canvas") deselectProcessStep();
+  });
+
+  /* =========================================================
+     MEDIA TAB
+  ========================================================= */
+  async function loadMediaTab(){
+    const grid = document.getElementById("media-grid");
+    const countEl = document.getElementById("media-count");
+    const media = (currentProductFiles && currentProductFiles.media) || [];
+    countEl.textContent = media.length ? media.length + " file" + (media.length>1?"s":"") : "";
+    if(!media.length){
+      grid.innerHTML = '<div class="media-empty"><h2>No photos or videos yet</h2><p>Add assembly photos or videos for this product using the button above.</p></div>';
+      return;
+    }
+    grid.innerHTML = "";
+    for(const m of media){
+      const tile = pEl("div","media-tile");
+      const mediaWrap = pEl("div","media-tile-media");
+      tile.appendChild(mediaWrap);
+      const nameEl = pEl("div","media-tile-name", esc(m.name));
+      tile.appendChild(nameEl);
+      grid.appendChild(tile);
+      try{
+        const file = await m.handle.getFile();
+        const url = URL.createObjectURL(file);
+        if(m.kind === "image"){
+          const img = document.createElement("img");
+          img.src = url;
+          img.addEventListener("click", () => openLightbox(url));
+          mediaWrap.appendChild(img);
+        } else {
+          const video = document.createElement("video");
+          video.src = url;
+          video.controls = true;
+          video.preload = "metadata";
+          mediaWrap.appendChild(video);
+        }
+      }catch(e){ mediaWrap.innerHTML = '<span class="placeholder">couldn\'t load</span>'; }
+    }
+  }
+
+  document.getElementById("btn-upload-media").addEventListener("click", () => {
+    document.getElementById("media-file-input").click();
+  });
+  document.getElementById("media-file-input").addEventListener("change", async (e) => {
+    const files = Array.from(e.target.files || []);
+    if(!files.length) return;
+    try{
+      let targetFolder = currentMediaFolderHandle;
+      if(!targetFolder){
+        targetFolder = await currentProductHandle.getDirectoryHandle("media", { create:true });
+        currentMediaFolderHandle = targetFolder;
+        if(currentProductFiles) currentProductFiles.mediaFolderHandle = targetFolder;
+      }
+      let added = 0;
+      for(const file of files){
+        const isImage = MEDIA_IMAGE_RE.test(file.name);
+        const isVideo = MEDIA_VIDEO_RE.test(file.name);
+        if(!isImage && !isVideo){ showToast(`Skipped "${file.name}" \u2014 not a supported image/video type`, "error"); continue; }
+        const buf = await file.arrayBuffer();
+        const handle = await fsCreateFile(targetFolder, file.name);
+        await fsWriteFile(handle, buf);
+        if(currentProductFiles) currentProductFiles.media.push({ name:file.name, handle, kind:isImage?"image":"video" });
+        added++;
+      }
+      if(currentProductFiles) currentProductFiles.media.sort((a,b)=>a.name.localeCompare(b.name));
+      e.target.value = "";
+      await loadMediaTab();
+      if(added) showToast(`Added ${added} file${added>1?'s':''}`, "success");
+    }catch(err){ showToast("Upload failed: " + err.message, "error"); }
   });
 
   /* =========================================================
