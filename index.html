@@ -288,6 +288,19 @@
     border:1px solid var(--line); background:var(--bg-panel-2);
   }
 
+  .lane-band{
+    position:absolute; left:0; box-sizing:border-box;
+    background:var(--bg-panel); pointer-events:none;
+  }
+  .lane-band.odd{ background:var(--bg-panel-2); }
+  .lane-label{
+    position:absolute; left:0; width:150px; box-sizing:border-box;
+    padding:10px 14px; display:flex; align-items:center;
+    font-size:12px; font-weight:700; line-height:1.35;
+    border-right:3px solid; background:var(--bg-panel);
+    z-index:2;
+  }
+
   #proc-empty-state{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     flex-direction:column; gap:14px; text-align:center; padding:40px;
@@ -1673,6 +1686,84 @@
   const PROC_COL_MARGIN_L = 90;
   const PROC_ROW_MARGIN_T = 60;
   const PROC_IO_GAP = 18;
+  const PROC_LANE_LABEL_W = 150;
+  const PROC_LANE_GAP = 4;
+  const PROC_LANE_COLORS = [
+    "var(--green)", "var(--amber)", "var(--cyan)", "var(--violet)", "var(--rose)", "var(--teal)"
+  ];
+
+  // Group steps into swimlanes: walking forward from each step that starts
+  // a distinct flow (no predecessor, or a merge of 2+ predecessors) while
+  // the chain stays a simple one-to-one hand-off. Each lane becomes one
+  // horizontal band in the diagram (e.g. Switch Assembly, Steel Plate
+  // Production, Back Box Production, Final QC & Packaging...).
+  function procBuildLanes(depth){
+    // Prefer an explicit "Parent Sub-Assembly" column when the sheet has
+    // one — it's the authoritative, human-assigned lane for each step.
+    const hasExplicitLanes = PROC_ORDER.some(id => PROC_STEPS[id].parentSubAssembly);
+    if(hasExplicitLanes){
+      const order = [];
+      const byLabel = {};
+      PROC_ORDER.forEach(id => {
+        const key = PROC_STEPS[id].parentSubAssembly || "(Unassigned)";
+        if(!byLabel[key]){ byLabel[key] = { label:key, memberIds:[] }; order.push(byLabel[key]); }
+        byLabel[key].memberIds.push(id);
+      });
+      return order;
+    }
+
+    // Fallback for sheets without that column: derive lanes from the
+    // graph structure — a new lane starts at each step with no
+    // predecessor or a merge of 2+ predecessors, and continues forward
+    // through simple one-to-one hand-offs.
+    const successors = {};
+    PROC_ORDER.forEach(id => successors[id] = []);
+    PROC_ORDER.forEach(id => PROC_STEPS[id].predecessors.forEach(p => { if(successors[p]) successors[p].push(id); }));
+
+    const depthOrder = [...PROC_ORDER].sort((a,b) => depth[a]-depth[b]);
+    const assigned = new Set();
+    const lanes = [];
+    depthOrder.forEach(startId => {
+      if(assigned.has(startId)) return;
+      const memberIds = [startId];
+      assigned.add(startId);
+      let cur = startId;
+      while(true){
+        const succ = successors[cur];
+        if(succ.length !== 1) break;
+        const next = succ[0];
+        if(assigned.has(next)) break;
+        if(PROC_STEPS[next].predecessors.length !== 1) break;
+        memberIds.push(next);
+        assigned.add(next);
+        cur = next;
+      }
+      lanes.push({ label: procDeriveLaneLabel(PROC_STEPS[startId]), memberIds });
+    });
+
+    // if the same lane label recurs in more than one place (e.g. a
+    // component-prep step and the later assembly steps both say
+    // "Button Assembly"), fold them into one lane rather than showing
+    // the same name as two separate bands
+    const merged = [];
+    const indexByLabel = {};
+    lanes.forEach(lane => {
+      if(indexByLabel[lane.label] !== undefined){
+        merged[indexByLabel[lane.label]].memberIds.push(...lane.memberIds);
+      } else {
+        indexByLabel[lane.label] = merged.length;
+        merged.push({ label: lane.label, memberIds: [...lane.memberIds] });
+      }
+    });
+    return merged;
+  }
+  function procDeriveLaneLabel(step){
+    const name = (step.name || step.id).trim();
+    const m = name.match(/^(.*?)\s*[-\u2013\u2014]\s*(.+)$/);
+    let label = m ? m[1].trim() : name;
+    if(label.length < 3) label = name;
+    return label;
+  }
 
   function procNormHeader(s){
     return String(s||"").toLowerCase().replace(/\n/g," ").replace(/\s+/g," ").trim();
@@ -1683,6 +1774,7 @@
       const h = procNormHeader(cell);
       if(!h) return;
       if(h === "step id") map.stepId = idx;
+      else if(h.includes("parent") && (h.includes("sub-assembly") || h.includes("sub assembly") || h.includes("subassembly"))) map.parentSubAssembly = idx;
       else if(h === "step name") map.stepName = idx;
       else if(h === "inputs") map.inputItem = idx;
       else if(h === "input type") map.inputType = idx;
@@ -1755,6 +1847,7 @@
         } else {
           current = {
             id,
+            parentSubAssembly: String(get("parentSubAssembly")||"").trim(),
             name: String(get("stepName")||"").trim(),
             description: String(get("description")||"").trim(),
             predecessorRaw: String(get("predecessor")||"").trim(),
@@ -1779,6 +1872,10 @@
           item: String(inputItem).trim(),
           type: String(get("inputType")||"").trim() || "—"
         });
+      }
+      if(current && !current.parentSubAssembly){
+        const psa = get("parentSubAssembly");
+        if(psa !== null && psa !== undefined && String(psa).trim() !== "") current.parentSubAssembly = String(psa).trim();
       }
     }
 
@@ -1862,7 +1959,7 @@
     PROC_STEPS = {}; PROC_ORDER = []; PROC_LAYOUT = {}; PROC_SELECTED = null; PROC_ZOOM = 1; PROC_ISSUES = [];
     const canvas = document.getElementById("proc-canvas");
     const edgesSvg = document.getElementById("proc-edges");
-    if(canvas) canvas.querySelectorAll(".pnode,.pio-box,.pstart-end").forEach(n=>n.remove());
+    if(canvas) canvas.querySelectorAll(".pnode,.pio-box,.pstart-end,.lane-band,.lane-label").forEach(n=>n.remove());
     if(edgesSvg) edgesSvg.innerHTML = "";
     const legend = document.getElementById("proc-legend");
     if(legend) legend.classList.add("hide");
@@ -1948,10 +2045,13 @@
   function renderProcessDiagram(){
     const canvas = document.getElementById("proc-canvas");
     const edgesSvg = document.getElementById("proc-edges");
-    canvas.querySelectorAll(".pnode,.pio-box,.pstart-end").forEach(n=>n.remove());
+    canvas.querySelectorAll(".pnode,.pio-box,.pstart-end,.lane-band,.lane-label").forEach(n=>n.remove());
     edgesSvg.innerHTML = "";
 
-    const {columns} = procComputeColumns(PROC_STEPS, PROC_ORDER);
+    const {columns, depth} = procComputeColumns(PROC_STEPS, PROC_ORDER);
+    const lanes = procBuildLanes(depth);
+    const laneIndexOf = {};
+    lanes.forEach((lane, i) => lane.memberIds.forEach(id => laneIndexOf[id] = i));
 
     const nodeEls = {}, inputEls = {}, outputEls = {};
     PROC_ORDER.forEach(id => {
@@ -2001,27 +2101,40 @@
       return Math.max(s.nodeW, s.inputW, s.outputW);
     })));
     const colX = [];
-    let cursorX = PROC_COL_MARGIN_L;
+    let cursorX = PROC_LANE_LABEL_W + 76 + 24; // leave room for the START marker + its arrow
     colWidth.forEach(w => { colX.push(cursorX); cursorX += w + PROC_COL_GAP; });
 
+    // ---- pass 4: lane row heights + Y positions (swimlanes replace the
+    // old free vertical packing — every step's Y is fixed by which lane
+    // it belongs to, so hand-offs between lanes read as a clean row jump)
+    const laneTop = [], laneHeight = [], laneTopExt = [], laneNodeHMax = [];
+    let curY = PROC_ROW_MARGIN_T;
+    lanes.forEach(lane => {
+      const topExt = Math.max(0, ...lane.memberIds.map(id => size[id].inputH ? size[id].inputH + PROC_IO_GAP : 0));
+      const botExt = Math.max(0, ...lane.memberIds.map(id => size[id].outputH ? size[id].outputH + PROC_IO_GAP : 0));
+      const nodeHMax = Math.max(...lane.memberIds.map(id => size[id].nodeH));
+      laneTopExt.push(topExt);
+      laneNodeHMax.push(nodeHMax);
+      laneTop.push(curY);
+      laneHeight.push(topExt + nodeHMax + botExt);
+      curY += topExt + nodeHMax + botExt + PROC_LANE_GAP;
+    });
+
     const layout = {};
-    columns.forEach((col, d) => {
-      let top = PROC_ROW_MARGIN_T;
+    PROC_ORDER.forEach(id => {
+      const s = size[id];
+      const d = depth[id];
       const centerX = colX[d] + colWidth[d]/2;
-      col.forEach(id => {
-        const s = size[id];
-        const ySt = top + (s.inputH ? s.inputH + PROC_IO_GAP : 0);
-        const yOut = ySt + s.nodeH + PROC_IO_GAP;
-        const nodeX = centerX - s.nodeW/2;
-        layout[id] = {
-          x: nodeX, y: ySt, w: s.nodeW, h: s.nodeH, centerX,
-          inputW: s.inputW, inputH: s.inputH, inputX: s.inputH ? centerX - s.inputW/2 : null, inputY: s.inputH ? ySt - s.inputH - PROC_IO_GAP : null,
-          outputW: s.outputW, outputH: s.outputH, outputX: s.outputH ? centerX - s.outputW/2 : null, outputY: s.outputH ? yOut : null,
-          depth: d
-        };
-        const blockBottom = ySt + s.nodeH + (s.outputH ? PROC_IO_GAP + s.outputH : 0);
-        top = blockBottom + PROC_ROW_GAP;
-      });
+      const li = laneIndexOf[id];
+      const nodeCenterY = laneTop[li] + laneTopExt[li] + laneNodeHMax[li]/2;
+      const ySt = nodeCenterY - s.nodeH/2;
+      const nodeX = centerX - s.nodeW/2;
+      layout[id] = {
+        x: nodeX, y: ySt, w: s.nodeW, h: s.nodeH, centerX,
+        inputW: s.inputW, inputH: s.inputH, inputX: s.inputH ? centerX - s.inputW/2 : null, inputY: s.inputH ? ySt - s.inputH - PROC_IO_GAP : null,
+        outputW: s.outputW, outputH: s.outputH, outputX: s.outputH ? centerX - s.outputW/2 : null, outputY: s.outputH ? ySt + s.nodeH + PROC_IO_GAP : null,
+        depth: d, lane: li
+      };
     });
     PROC_LAYOUT = layout;
 
@@ -2084,12 +2197,26 @@
 
     const maxCorridorY = Math.max(0, ...longDescriptors.map(e => Math.max(...e.points.map(pt=>pt[1]))));
     const totalW = cursorX + 160;
-    const totalH = Math.max(...Object.values(layout).map(l => (l.outputY||l.y+l.h) + 80), maxCorridorY + 60, 400);
+    const totalH = Math.max(curY + 40, maxCorridorY + 60, 400);
     canvas.style.width = totalW + "px";
     canvas.style.height = totalH + "px";
     edgesSvg.setAttribute("width", totalW);
     edgesSvg.setAttribute("height", totalH);
     edgesSvg.setAttribute("viewBox", `0 0 ${totalW} ${totalH}`);
+
+    // lane bands (background strip + label), drawn first so they sit behind everything
+    lanes.forEach((lane, i) => {
+      const color = PROC_LANE_COLORS[i % PROC_LANE_COLORS.length];
+      const band = pEl("div","lane-band"+(i%2?" odd":""));
+      band.style.top = laneTop[i]+"px"; band.style.width = totalW+"px"; band.style.height = laneHeight[i]+"px";
+      band.style.borderLeft = `3px solid ${color}`;
+      canvas.insertBefore(band, canvas.firstChild);
+
+      const label = pEl("div","lane-label", esc(lane.label));
+      label.style.top = laneTop[i]+"px"; label.style.height = laneHeight[i]+"px";
+      label.style.color = color; label.style.borderRightColor = color;
+      canvas.insertBefore(label, canvas.firstChild);
+    });
 
     PROC_ORDER.forEach(id => {
       const L = layout[id];
